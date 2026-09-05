@@ -89,3 +89,6 @@ Market stalls, shopfronts, fixtures, menu graphics, furnishings, and signal pole
 
 ## Vehicle impact reactions
 `impact-air.json`, `impact-ground.json`, and `impact-recover.json` are authored procedural reaction poses based on the Rocketbox neutral body rotation reference. They contain 21 quaternion tracks each and retain each model's own bind-position proportions. They are game reaction animations, not captured fall mocap. Runtime physics supplies knockback and gravity. `impact-grounding.json` stores precomputed exact skinned-vertex ground offsets for all eight model proportions, avoiding per-frame vertex traversal. The Microsoft Rocketbox MIT license remains distributed in LICENSE-Rocketbox.md.
+
+## School and public transit
+The Blue Bay School building, courtyard, entrance signs and bus-stop additions are original procedural geometry and fictional branding. The Pelagia L10 city bus is also original procedural geometry: rounded body panels, wheel-arch openings, glazing, 24 seats, handrails, two door assemblies, wheels, lamps and shared sign atlas. No external model or texture assets were added for the school or bus. Both use the existing city environment for lighting.

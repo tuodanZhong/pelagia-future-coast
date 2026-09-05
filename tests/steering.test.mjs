@@ -43,7 +43,7 @@ function configure(traffic,kind,yaw,steer=0,speed=0){
 }
 function matrixOf(traffic,car,part){
   const mesh=part==='rover-cockpit'
-    ? traffic.root.children.find(o=>o.isInstancedMesh&&!o.material.name.startsWith('Fixture-'))
+    ? traffic.root.children.find(o=>o.isInstancedMesh&&o.material.name==='RoverSteeringWheel')
     : traffic.root.children.find(o=>o.isInstancedMesh&&o.material.name===`Fixture-${car.model}-${part}`);
   assert.ok(mesh,`${car.model} ${part} is independently animated`);
   const index=traffic.cars.filter(c=>c.model===car.model).indexOf(car),matrix=new THREE.Matrix4();mesh.getMatrixAt(index,matrix);return matrix;

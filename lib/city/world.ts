@@ -8,6 +8,7 @@ import { buildStreetLife } from './street-life.ts';
 import type { Seat } from './seating';
 import { buildBuildingIdentities } from './identities.ts';
 import { buildRetail } from './retail.ts';
+import { buildSchool } from './school.ts';
 import { CITIZENS } from './population.ts';
 
 export const TOWERS = [
@@ -199,6 +200,7 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
   enrichCity({root,obstacles,seats,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light});
   buildStreetLife({root,obstacles,seats,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light});
   buildRetail({root,obstacles,add,block,pipe,white,steel,dark});
+  buildSchool({root,obstacles,add,block,pipe,shrub,white,steel,dark,glass,grass,light});
   for(const seat of seats)seat.occupied=CITIZENS.some(c=>c.seatId===seat.id);
   // Batch fixed architectural details into one draw call per material.
   for (const [m, geometries] of batches) {
