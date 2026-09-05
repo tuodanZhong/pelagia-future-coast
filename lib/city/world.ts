@@ -18,7 +18,7 @@ export const TOWERS = [
 function material(color: THREE.ColorRepresentation, roughness = 0.7, metalness = 0) {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
 }
-export function buildWorld(scene: THREE.Scene) {
+export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingManager) {
   const root = new THREE.Group(); scene.add(root);
   const obstacles: Obstacle[] = [];
   const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -32,7 +32,7 @@ export function buildWorld(scene: THREE.Scene) {
   const railGlass = new THREE.MeshPhysicalMaterial({color:'#bed5d5',metalness:.1,roughness:.12,transparent:true,opacity:.24,side:THREE.DoubleSide,depthWrite:false});
   const interior = material('#3c4443',.86), warm = new THREE.MeshStandardMaterial({color:'#dacdb2',emissive:'#e4c295',emissiveIntensity:.22,roughness:.8});
   if (typeof document !== 'undefined') {
-    const loader = new THREE.TextureLoader();
+    const loader = new THREE.TextureLoader(loadingManager);
     for(const [m,name,normal] of [[pavement,'concrete_pavement',.24],[asphalt,'asphalt_02',.19]] as const) {
       const configure=(t:THREE.Texture)=>{t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=8;return t;};
       m.map=configure(loader.load('/assets/'+name+'_diff_1k.jpg'));m.map.colorSpace=THREE.SRGBColorSpace;

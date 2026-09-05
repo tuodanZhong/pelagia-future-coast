@@ -26,6 +26,7 @@ export class CityEngine {
   keys = new Set<string>();
   private tappedKeys = new Set<string>();
   quality = 1;
+  private assetsReady = false;
   private composer!: EffectComposer;
   private ao!: GTAOPass;
   private backgroundTexture?: THREE.DataTexture;
@@ -77,7 +78,9 @@ export class CityEngine {
     this.sun.castShadow = true; this.sun.shadow.mapSize.set(4096, 4096);
     Object.assign(this.sun.shadow.camera, { left: -210, right: 210, top: 200, bottom: -200, near: 1, far: 650 });
     this.sun.shadow.bias = -0.00004; this.sun.shadow.normalBias = 0.04; this.scene.add(this.sun);
-    this.world = buildWorld(this.scene);
+    const assetManager=new THREE.LoadingManager();
+    assetManager.onLoad=()=>{if(!this.dead){this.assetsReady=true;this.emit();}};
+    this.world = buildWorld(this.scene,assetManager);
     const target = new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,samples:4});
     this.composer = new EffectComposer(this.renderer,target);
     this.composer.addPass(new RenderPass(this.scene,this.camera));
@@ -86,7 +89,7 @@ export class CityEngine {
     this.ao.updatePdMaterial({radius:4,rings:2,samples:8});this.ao.blendIntensity=.75;
     this.composer.addPass(this.ao);this.composer.addPass(new OutputPass());
     // One reflection probe captures real buildings and landscape, then is reused.
-    new HDRLoader().load('/assets/kloppenheim_05_puresky_1k.hdr', texture => {
+    new HDRLoader(assetManager).load('/assets/kloppenheim_05_puresky_1k.hdr', texture => {
       if(this.dead){texture.dispose();return;}
       texture.mapping=THREE.EquirectangularReflectionMapping;this.backgroundTexture=texture;
       const pm=new THREE.PMREMGenerator(this.renderer);this.environment.dispose();
@@ -185,7 +188,7 @@ export class CityEngine {
   touchMove(code: string, down: boolean) { if (down) { if (this.mode !== 'walk') this.setMode('walk'); this.active = true; this.fallback = true; this.keys.add(code); } else this.keys.delete(code); this.emit(); }
   private zone() { const { x, z } = this.camera.position; if (Math.abs(x) > 132 || Math.abs(z) > 130) return '环岛滨水步道'; if (z > 52 && Math.abs(x) < 35) return '滨海广场'; if (Math.abs(x) < 33 && z < 40 && z > -55) return '潮汐之塔'; if (Math.abs(Math.abs(x) - 48) < 16) return '棕榈大道'; return '蓝湾街区'; }
   private emit(fps = 0) {
-    this.report({ ready: true, locked: this.locked, active: this.active, mode: this.mode, x: this.camera.position.x, z: this.camera.position.z, yaw: this.yaw, fps,
+    this.report({ ready: this.assetsReady, locked: this.locked, active: this.active, mode: this.mode, x: this.camera.position.x, z: this.camera.position.z, yaw: this.yaw, fps,
       calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, zone: this.mode === 'aerial' ? '全城鸟瞰' : this.zone(), fallback: this.fallback });
   }
   private tick = (now: number) => {
