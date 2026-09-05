@@ -10,14 +10,15 @@ import { buildWorld } from './world';
 import { Characters } from './characters';
 import { JumpController, jumpKind, jumpVelocity } from './jump';
 import { SeatController, nearestSeat, type Seat } from './seating';
-import { Traffic } from './traffic';
+import { Traffic, type Vehicle } from './traffic';
+import { AttackController } from './combat';
 import { locomotionSpeed } from './locomotion';
 import { TrafficSignals } from './signals';
 import { followOffset, resolveFollowCamera } from './camera';
-import { EYE_HEIGHT, SPAWN, moveWithCollisions, movementVector, groundHeight } from './movement';
+import { EYE_HEIGHT, SPAWN, moveWithCollisions, movementVector, groundHeight, clearArrival } from './movement';
 
 export type ViewMode = 'first' | 'third' | 'aerial';
-export type CityState = { ready: boolean; locked: boolean; active: boolean; mode: ViewMode; x: number; z: number; yaw: number; fps: number; calls: number; triangles: number; zone: string; fallback: boolean; sprinting:boolean; seated:boolean; interaction:'sit'|'stand'|'busy'|null };
+export type CityState = { ready: boolean; locked: boolean; active: boolean; mode: ViewMode; x: number; z: number; yaw: number; fps: number; calls: number; triangles: number; zone: string; fallback: boolean; sprinting:boolean; seated:boolean; interaction:'sit'|'stand'|'busy'|null; driving:boolean; vehicleName:string; vehicleSpeed:number; vehicleGear:string; vehicleInteraction:'enter'|'exit'|null; attackHit:boolean };
 export class CityEngine {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
@@ -41,6 +42,11 @@ export class CityEngine {
   private velocity={x:0,z:0};
   private seating=new SeatController();
   private nearbySeat?:Seat;
+  private nearbyVehicle?:Vehicle;
+  private attack=new AttackController();
+  private hitUntil=0;
+  private lastDriveLook=-10;
+  private collisionNotice=-10;
   private cameraTarget = new THREE.Vector3();
   private reflection?: THREE.WebGLRenderTarget;
   keys = new Set<string>();
@@ -102,7 +108,7 @@ export class CityEngine {
     assetManager.onLoad=()=>{if(!this.dead){this.assetsReady=true;this.emit();}};
     this.world = buildWorld(this.scene,assetManager);
     this.signals = new TrafficSignals(this.scene,this.world.obstacles);
-    this.characters = new Characters(this.scene,assetManager,this.world.obstacles,()=>this.notice('人物资源加载失败，请刷新重试。'));
+    this.characters = new Characters(this.scene,assetManager,this.world.obstacles,()=>this.notice('人物资源加载失败，请刷新重试。'),this.world.seats);
     this.traffic = new Traffic(this.scene,assetManager,this.world.obstacles,()=>this.notice('车辆资源加载失败，请刷新重试。'));
     const target = new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,samples:4});
     this.composer = new EffectComposer(this.renderer,target);
@@ -147,6 +153,7 @@ export class CityEngine {
     this.listen(document, 'mousemove', this.onMouseMove as EventListener);
     this.listen(this.renderer.domElement, 'pointerdown', ((e: PointerEvent) => {
       if (this.mode === 'aerial') return;
+      if(this.locked&&e.button===0&&!this.traffic.controlled){this.punch();return;}
       if (e.pointerType === 'touch') { this.active = true; this.fallback = true; }
       if (!this.active) { this.enter(); return; }
       if (!this.locked) { this.dragging = true; this.lastPointer = { x: e.clientX, y: e.clientY }; this.renderer.domElement.setPointerCapture(e.pointerId); }
@@ -173,20 +180,24 @@ export class CityEngine {
     if (e.code === 'KeyB' && !e.repeat) { this.setMode(this.mode === 'aerial' ? this.streetMode : 'aerial'); return; }
     if (e.code === 'KeyR' && !e.repeat) { this.reset(); return; }
     if (!this.active || this.mode === 'aerial') return;
+    if(e.code==='KeyF'&&!e.repeat){e.preventDefault();this.interactVehicle();return;}
+    if(e.code==='KeyJ'&&!e.repeat){e.preventDefault();this.punch();return;}
     if(e.code==='KeyE'&&!e.repeat){e.preventDefault();this.interactSeat();return;}
     if(e.code==='KeyQ'&&!e.repeat){e.preventDefault();this.toggleSprint();return;}
     if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','ShiftLeft','ShiftRight'].includes(e.code)) {
       e.preventDefault(); this.keys.add(e.code); if (!e.repeat) this.tappedKeys.add(e.code);
+      if(this.traffic.controlled)return;
       if(this.seating.frame.phase!=='none'){
         if(this.seating.frame.phase==='seated'&&!e.repeat&&!e.code.startsWith('Shift'))this.seating.stand(this.world.obstacles);
         return;
       }
-      if(e.code==='Space'&&!e.repeat){const kind=jumpKind(this.playerSpeed);if(this.jump.request(kind))this.characters.prepareJump(kind);}
+      if(e.code==='Space'&&!e.repeat&&!this.attack.frame.active){const kind=jumpKind(this.playerSpeed);if(this.jump.request(kind))this.characters.prepareJump(kind);}
     }
   };
   private onMouseMove = (e: MouseEvent) => { if (this.locked && this.mode !== 'aerial') this.look(e.movementX, e.movementY); };
-  private look(dx: number, dy: number) { this.yaw -= dx * 0.0022; this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0022, -1.3, 1.35); this.applyLook(); }
+  private look(dx: number, dy: number) { this.lastDriveLook=this.elapsed;this.yaw -= dx * 0.0022; this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0022, -1.3, 1.35); this.applyLook(); }
   private applyLook() {
+    if(this.traffic.controlled){this.updateDrivingCamera(1,true);return;}
     if(this.mode==='first'){this.camera.position.copy(this.walkPosition);this.camera.rotation.set(this.pitch,this.yaw,0,'YXZ');}
     else if(this.mode==='third')this.updateFollow(1,true);
   }
@@ -200,7 +211,22 @@ export class CityEngine {
     const corrected=resolveFollowCamera(this.cameraTarget,this.camera.position,this.cameraObstacles());
     this.camera.position.set(corrected.x,corrected.y,corrected.z);this.camera.lookAt(this.cameraTarget);
   }
-  private cameraObstacles(){const seat=this.seating.frame.seat;return seat?this.world.obstacles.filter(o=>o!==seat.obstacle):this.world.obstacles;}
+  private cameraObstacles(){const seat=this.seating.frame.seat,car=this.traffic.controlled;return this.world.obstacles.filter(o=>o!==seat?.obstacle&&o!==car?.obstacle);}
+  private updateDrivingCamera(dt:number,snap=false){
+    const car=this.traffic.controlled;if(!car||this.mode==='aerial')return;
+    const desiredYaw=car.yaw+Math.PI;
+    if(this.elapsed-this.lastDriveLook>1.6){const difference=THREE.MathUtils.euclideanModulo(desiredYaw-this.yaw+Math.PI,Math.PI*2)-Math.PI;this.yaw+=difference*(1-Math.exp(-dt*2.7));}
+    if(this.mode==='first'){
+      this.camera.position.copy(this.characters.driverEye(car.model).applyMatrix4(car.matrix));this.camera.rotation.set(THREE.MathUtils.clamp(this.pitch,-.65,.65),this.yaw,0,'YXZ');
+    }else{
+      this.cameraTarget.set(car.position.x,car.position.y+(car.model==='concept'?.8:1.2),car.position.z);
+      const offset=followOffset(this.yaw,THREE.MathUtils.clamp(this.pitch,-.65,-.12),7.1+Math.abs(car.speed)*.07);
+      const desired=this.cameraTarget.clone().add(new THREE.Vector3(offset.x,offset.y+.45,offset.z));
+      const safe=resolveFollowCamera(this.cameraTarget,desired,this.cameraObstacles());
+      if(snap)this.camera.position.set(safe.x,safe.y,safe.z);else this.camera.position.lerp(new THREE.Vector3(safe.x,safe.y,safe.z),1-Math.exp(-dt*9));
+      const corrected=resolveFollowCamera(this.cameraTarget,this.camera.position,this.cameraObstacles());this.camera.position.set(corrected.x,corrected.y,corrected.z);this.camera.lookAt(this.cameraTarget);
+    }
+  }
   private enableFallback() { if (this.dead || this.mode === 'aerial') return; this.fallback = true; this.active = true; this.notice('已启用拖动观察：按住画面拖动，WASD 自由移动。'); this.emit(); }
   enter() {
     if (this.mode === 'aerial') this.setMode(this.streetMode);
@@ -216,6 +242,7 @@ export class CityEngine {
     if(!isStreet||!wasStreet)this.pause();
     if(isStreet)this.streetMode=mode;
     this.mode=mode;this.orbit.enabled=mode==='aerial';
+    if(this.traffic.controlled&&isStreet)this.pitch=mode==='first'?0:-.22;
     if(mode==='aerial') {this.camera.position.set(195,220,330);this.orbit.target.set(0,30,-10);this.orbit.update();}
     else {if(mode==='third')this.pitch=Math.min(this.pitch,-.08);this.applyLook();}
     if(this.active)this.renderer.domElement.focus();
@@ -223,7 +250,8 @@ export class CityEngine {
   }
   reset() { this.teleport(SPAWN.x,SPAWN.z,SPAWN.yaw,this.mode==='first'?SPAWN.pitch:-.12);this.notice('已回到滨海广场入口'); }
   teleport(x:number,z:number,yaw:number,pitch=.14) {
-    this.pause();if(this.mode==='aerial')this.mode=this.streetMode;this.orbit.enabled=false;this.yaw=yaw;
+    const arrival=clearArrival(x,z,this.world.obstacles);if(!arrival){this.notice('目的地暂时没有空位，请稍后重试。');return;}x=arrival.x;z=arrival.z;
+    this.traffic.releaseControl();this.attack.reset();this.pause();if(this.mode==='aerial')this.mode=this.streetMode;this.orbit.enabled=false;this.yaw=yaw;
     this.pitch=this.mode==='third'?-.12:pitch;this.walkPosition.set(x,EYE_HEIGHT,z);this.jump.reset();this.seating.reset();this.velocity={x:0,z:0};this.moveSpeed=0;
     this.characterYaw=yaw+Math.PI;this.applyLook();this.emit();
   }
@@ -235,7 +263,7 @@ export class CityEngine {
   }
   touchMove(code: string, down: boolean) { if (down) { if (this.mode === 'aerial') this.setMode(this.streetMode); this.active = true; this.fallback = true; this.keys.add(code); } else this.keys.delete(code); this.emit(); }
   interactSeat(){
-    if(this.mode==='aerial'||this.jump.frame.phase!=='grounded')return;
+    if(this.traffic.controlled||this.attack.frame.active||this.mode==='aerial'||this.jump.frame.phase!=='grounded')return;
     if(this.seating.frame.phase==='seated')this.seating.stand(this.world.obstacles);
     else if(this.seating.frame.phase==='none'){
       const seat=nearestSeat(this.walkPosition,this.world.seats,this.world.obstacles);
@@ -244,11 +272,31 @@ export class CityEngine {
     this.keys.clear();this.tappedKeys.clear();this.velocity={x:0,z:0};this.moveSpeed=0;
     this.active=true;if(!this.locked)this.fallback=true;this.renderer.domElement.focus();this.emit();
   }
-  toggleSprint(){this.sprintToggled=!this.sprintToggled;if(this.active)this.renderer.domElement.focus();this.emit();}
+  interactVehicle(){
+    if(this.mode==='aerial'||this.seating.frame.phase!=='none'||this.jump.frame.phase!=='grounded'||this.attack.frame.active)return;
+    const car=this.traffic.controlled;
+    if(car){
+      if(Math.abs(car.speed)>.5){this.notice('先按空格刹停，再按 F 下车。');return;}
+      const exit=this.traffic.exitPosition();if(!exit){this.notice('车门旁没有空位，请把车移到宽敞的位置。');return;}
+      this.traffic.releaseControl();this.walkPosition.set(exit.x,groundHeight(exit.x,exit.z)+EYE_HEIGHT,exit.z);this.characterYaw=exit.yaw;this.yaw=exit.yaw+Math.PI;this.pitch=-.12;
+      this.notice('已下车 · 车辆会留在这里，可以再次驾驶。');
+    }else{
+      const nearest=this.traffic.nearestVehicle(this.walkPosition);if(!nearest||!this.traffic.takeControl(nearest))return;
+      this.yaw=nearest.yaw+Math.PI;this.pitch=this.mode==='first'?0:-.22;this.lastDriveLook=-10;
+      this.walkPosition.copy(nearest.position);this.notice('W 加速 · S 刹车/倒车 · A/D 转向 · 空格急刹 · F 下车');
+    }
+    this.keys.clear();this.tappedKeys.clear();this.velocity={x:0,z:0};this.moveSpeed=0;this.sprintToggled=false;this.attack.reset();this.active=true;if(!this.locked)this.fallback=true;this.renderer.domElement.focus();this.applyLook();this.emit();
+  }
+  punch(){
+    if(this.traffic.controlled||this.mode==='aerial'||this.seating.frame.phase!=='none'||this.jump.frame.phase!=='grounded'||!this.assetsReady)return;
+    if(!this.attack.request())return;
+    this.characterYaw=this.yaw+Math.PI;this.moveSpeed=0;this.velocity={x:0,z:0};this.active=true;if(!this.locked)this.fallback=true;this.renderer.domElement.focus();
+  }
+  toggleSprint(){if(this.traffic.controlled)return;this.sprintToggled=!this.sprintToggled;if(this.active)this.renderer.domElement.focus();this.emit();}
   private zone() { const { x, z } = this.walkPosition; if (Math.abs(x) > 132 || Math.abs(z) > 130) return '环岛滨水步道'; if (z>70&&z<108&&Math.abs(x)>18&&Math.abs(x)<30) return '海风市集'; if (z > 52 && Math.abs(x) < 35) return '滨海广场'; if (Math.abs(x) < 33 && z < 40 && z > -55) return '潮汐之塔'; if (Math.abs(Math.abs(x) - 48) < 16) return '棕榈大道'; return '蓝湾街区'; }
   private emit(fps = 0) {
     this.report({ ready: this.assetsReady, locked: this.locked, active: this.active, mode: this.mode, x: this.walkPosition.x, z: this.walkPosition.z, yaw: this.yaw, fps,
-      calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, zone: this.mode === 'aerial' ? '全城鸟瞰' : this.zone(), fallback: this.fallback, sprinting:this.sprintToggled||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight'), seated:this.seating.frame.phase==='seated', interaction:this.mode==='aerial'?null:this.seating.frame.phase==='seated'?'stand':this.seating.frame.phase!=='none'?'busy':this.nearbySeat?'sit':null });
+      calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, zone: this.mode === 'aerial' ? '全城鸟瞰' : this.zone(), fallback: this.fallback, sprinting:this.sprintToggled||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight'), seated:this.seating.frame.phase==='seated', driving:!!this.traffic.controlled,vehicleName:this.traffic.controlled?.model==='concept'?'AERIS GT · 跑车':'ROVER · 城市 SUV',vehicleSpeed:Math.round(Math.abs(this.traffic.controlled?.speed??0)*3.6),vehicleGear:(this.traffic.controlled?.speed??0)<-.1?'R':Math.abs(this.traffic.controlled?.speed??0)<.1?'N':'D',vehicleInteraction:this.mode==='aerial'?null:this.traffic.controlled?'exit':this.nearbyVehicle&&this.seating.frame.phase==='none'?'enter':null,attackHit:this.elapsed<this.hitUntil, interaction:this.mode==='aerial'||this.traffic.controlled?null:this.seating.frame.phase==='seated'?'stand':this.seating.frame.phase!=='none'?'busy':this.nearbySeat?'sit':null });
   }
   private tick = (now: number) => {
     if (this.dead) return;
@@ -257,11 +305,22 @@ export class CityEngine {
     if (document.hidden) return;
     this.elapsed += dt; this.frames++;
     this.signals.update(this.elapsed);
+    const car=this.traffic.controlled,held=(key:string)=>this.keys.has(key)||this.tappedKeys.has(key);
+    this.traffic.cockpitView=!!car&&this.mode==='first';
+    const attackFrame=this.attack.update(dt);
+    if(car){
+      const enabled=this.active&&this.mode!=='aerial';
+      const throttle=enabled?Number(held('KeyW')||held('ArrowUp'))-Number(held('KeyS')||held('ArrowDown')):0;
+      const steer=enabled?Number(held('KeyD')||held('ArrowRight'))-Number(held('KeyA')||held('ArrowLeft')):0;
+      const collision=this.traffic.drive(dt,{throttle,steer,brake:!enabled||held('Space')?1:0});
+      if(collision&&this.elapsed-this.collisionNotice>3){this.notice('前方有障碍 · 松开油门，倒车调整方向。');this.collisionNotice=this.elapsed;}
+      this.walkPosition.copy(car.position);this.characterYaw=car.yaw;this.tappedKeys.clear();
+    }
     this.traffic.update(dt,this.walkPosition,this.signals,this.elapsed);
     const wasSeating=this.seating.frame.phase!=='none',seatFrame=this.seating.update(dt,this.world.obstacles);
     const wasJumping=this.jump.frame.phase!=='grounded',jumpFrame=this.jump.update(dt);
     this.playerSpeed=0;
-    if(wasSeating){
+    if(car){this.playerSpeed=0;}else if(wasSeating){
       this.walkPosition.x=seatFrame.x;this.walkPosition.z=seatFrame.z;this.characterYaw=seatFrame.yaw;
       this.playerSpeed=seatFrame.speed;this.velocity={x:0,z:0};this.moveSpeed=0;
     }else {
@@ -273,22 +332,26 @@ export class CityEngine {
         this.moveSpeed=locomotionSpeed(this.moveSpeed,forward!==0||right!==0,this.sprintToggled||held('ShiftLeft')||held('ShiftRight'),dt);
         const direction=movementVector(forward,right,this.yaw,this.moveSpeed,1);desired={x:direction.dx,z:direction.dz};
       }else this.moveSpeed=0;
+      if(attackFrame.active){const stride=attackFrame.time<.15?.55:0;desired={x:Math.sin(this.characterYaw)*stride,z:Math.cos(this.characterYaw)*stride};this.moveSpeed=0;}
       this.tappedKeys.clear();
       this.velocity=wasJumping?jumpVelocity(this.velocity,desired,jumpFrame.phase,dt):desired;
       const previous={x:this.walkPosition.x,z:this.walkPosition.z};
       const next=moveWithCollisions(previous.x,previous.z,this.velocity.x*dt,this.velocity.z*dt,this.world.obstacles);
       this.velocity={x:(next.x-previous.x)/dt,z:(next.z-previous.z)/dt};
       this.playerSpeed=Math.hypot(this.velocity.x,this.velocity.z);
-      if(this.playerSpeed>.05&&jumpFrame.phase!=='airborne'&&jumpFrame.phase!=='takeoff')this.characterYaw=Math.atan2(this.velocity.x,this.velocity.z);
+      if(!attackFrame.active&&this.playerSpeed>.05&&jumpFrame.phase!=='airborne'&&jumpFrame.phase!=='takeoff')this.characterYaw=Math.atan2(this.velocity.x,this.velocity.z);
       this.walkPosition.x=next.x;this.walkPosition.z=next.z;
     }
     if(this.mode==='aerial')this.orbit.update();
     const ground=seatFrame.seat&&['sitDown','seated','standUp'].includes(seatFrame.phase)?seatFrame.seat.ground:groundHeight(this.walkPosition.x,this.walkPosition.z);
     this.walkPosition.y=ground+EYE_HEIGHT+jumpFrame.height-.52*seatFrame.progress;
+    this.nearbyVehicle=!car&&seatFrame.phase==='none'&&jumpFrame.phase==='grounded'?this.traffic.nearestVehicle(this.walkPosition):undefined;
+    if(attackFrame.contact&&this.characters.strike(this.walkPosition,this.characterYaw,this.elapsed))this.hitUntil=this.elapsed+.22;
     this.nearbySeat=seatFrame.phase==='none'&&jumpFrame.phase==='grounded'?nearestSeat(this.walkPosition,this.world.seats,this.world.obstacles):undefined;
-    if(this.mode==='first')this.applyLook();else if(this.mode==='third')this.updateFollow(dt);
+    if(car)this.updateDrivingCamera(dt);else if(this.mode==='first')this.applyLook();else if(this.mode==='third')this.updateFollow(dt);
     const feet=new THREE.Vector3(this.walkPosition.x,ground+jumpFrame.height,this.walkPosition.z);
-    this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,jumpFrame,seatFrame);
+    if(car)this.characters.updateDriver(car.matrix,car.yaw,car.model,this.mode!=='first',dt);
+    else this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,jumpFrame,seatFrame,attackFrame);
     this.characters.update(this.elapsed,this.walkPosition,this.mode==='aerial');
     this.world.update(this.elapsed);
     if(this.elapsed-this.lastShadow>.12){this.renderer.shadowMap.needsUpdate=true;this.lastShadow=this.elapsed;}

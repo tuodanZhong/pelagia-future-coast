@@ -1,4 +1,4 @@
-import type { Obstacle } from './movement';
+import { insideObstacle, type Obstacle } from './movement.ts';
 export type Position = {x:number;y:number;z:number};
 // Sweep the camera through the same solid footprints as the player, at its own height.
 export function resolveFollowCamera(target:Position, desired:Position, obstacles:Obstacle[]):Position {
@@ -7,9 +7,7 @@ export function resolveFollowCamera(target:Position, desired:Position, obstacles
   let fraction=1;
   for(let i=1;i<=steps;i++) {
     const f=i/steps,x=target.x+delta.x*f,y=target.y+delta.y*f,z=target.z+delta.z*f;
-    if(y<.28||obstacles.some(o=>y<(o.height??1.2)+.25 && (o.shape==='box'
-      ? Math.abs(x-o.x)<o.rx+.25&&Math.abs(z-o.z)<o.rz+.25
-      : ((x-o.x)/(o.rx+.25))**2+((z-o.z)/(o.rz+.25))**2<1))) {fraction=Math.max(0,(i-2)/steps);break;}
+    if(y<.28||obstacles.some(o=>y<(o.height??1.2)+.25 && insideObstacle(x,z,o,.25))) {fraction=Math.max(0,(i-2)/steps);break;}
   }
   return {x:target.x+delta.x*fraction,y:Math.max(.28,target.y+delta.y*fraction),z:target.z+delta.z*fraction};
 }

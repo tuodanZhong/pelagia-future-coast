@@ -1,10 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Compass, Eye, UserRound, Footprints, Layers3, LocateFixed, Map, Maximize, Mouse, RotateCcw, Waves, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Compass, CarFront, Hand, Eye, UserRound, Footprints, Layers3, LocateFixed, Map, Maximize, Mouse, RotateCcw, Waves, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { CityEngine, CityState } from '@/lib/city/engine';
 import { TOWERS } from '@/lib/city/world';
-const INITIAL: CityState = { ready: false, locked: false, active: false, mode: 'third', x: 18, z: 116, yaw: 0.15, fps: 0, calls: 0, triangles: 0, zone: '滨海广场', fallback: false, sprinting:false, seated:false, interaction:null };
+const INITIAL: CityState = { ready: false, locked: false, active: false, mode: 'third', x: 18, z: 116, yaw: 0.15, fps: 0, calls: 0, triangles: 0, zone: '滨海广场', fallback: false, sprinting:false, seated:false, interaction:null, driving:false, vehicleName:"", vehicleSpeed:0, vehicleGear:"N", vehicleInteraction:null, attackHit:false };
 export default function CityPage() {
   const container = useRef<HTMLDivElement>(null), engine = useRef<CityEngine | null>(null);
   const [state, setState] = useState(INITIAL), [error, setError] = useState(''), [toast, setToast] = useState('');
@@ -25,7 +25,7 @@ export default function CityPage() {
   }, []);
   const switchQuality = () => { const q = (quality + 1) % 3; setQuality(q); engine.current?.setQuality(q); };
   const fullscreen = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => setToast('当前浏览器无法退出全屏')); else document.documentElement.requestFullscreen?.().catch(() => setToast('当前窗口不支持全屏，可在浏览器中打开')); };
-  return <main className={`city-app ${state.active ? 'is-playing' : ''}`}>
+  return <main className={`city-app ${state.active ? 'is-playing' : ''} ${state.driving ? 'is-driving' : ''}`}>
     <div ref={container} className="scene-container" />
     <div className="scene-vignette" />
     <header className="topbar">
@@ -57,11 +57,15 @@ export default function CityPage() {
           <button onClick={() => engine.current?.teleport(138, 105, 0.8, 0.13)} title="前往滨水步道">滨水 <ArrowRight size={12} /></button>
           <button onClick={() => engine.current?.teleport(68, 74, -Math.PI/2, 0)} title="前往服饰与琴行街区">商街 <ArrowRight size={12} /></button>
           <button onClick={() => engine.current?.teleport(19.8, 106.6, .39, -.08)} title="前往广场座椅">休息 <ArrowRight size={12} /></button>
+          <button onClick={() => engine.current?.teleport(59.5,89,Math.PI/2,0)} title="前往路边可驾驶车辆">驾车 <ArrowRight size={12} /></button>
         </div>
       </aside>
-      {!state.active && state.mode !== 'aerial' && <div className="entry-prompt"><Button className="enter-button" onClick={() => engine.current?.enter()}><Footprints size={18} />进入街区 <ArrowRight size={17} /></Button><span>WASD 移动 · Shift 加速 · 空格跳跃</span></div>}
+      {!state.active && state.mode !== 'aerial' && <div className="entry-prompt"><Button className="enter-button" onClick={() => engine.current?.enter()}>{state.driving?<CarFront size={18}/>:<Footprints size={18} />}{state.driving?'继续驾驶':'进入街区'} <ArrowRight size={17} /></Button><span>{state.driving?'W 加速 · A/D 转向 · 空格刹车':'WASD 移动 · F 上车 · J 出拳'}</span></div>}
       {state.mode === 'aerial' && <div className="aerial-hint"><Mouse size={16} /> 拖动旋转 · 滚轮缩放 <button onClick={() => engine.current?.enter()}>返回街区 <ArrowRight size={13} /></button></div>}
-      {state.interaction && state.interaction!=='busy' && <button className="seat-interaction" onClick={() => engine.current?.interactSeat()}><kbd>E</kbd>{state.interaction==='stand'?'起身':'坐下休息'}</button>}
+      {!state.vehicleInteraction && state.interaction && state.interaction!=='busy' && <button className="seat-interaction" onClick={() => engine.current?.interactSeat()}><kbd>E</kbd>{state.interaction==='stand'?'起身':'坐下休息'}</button>}
+      {state.vehicleInteraction && <button className="seat-interaction vehicle-interaction" onClick={() => engine.current?.interactVehicle()}><kbd>F</kbd>{state.vehicleInteraction==='exit'?'下车':'驾驶车辆'}</button>}
+      {state.driving && <div className="vehicle-status" role="status" aria-label={`驾驶 ${state.vehicleName}，时速 ${state.vehicleSpeed} 公里，${state.vehicleGear} 挡`}><div><CarFront size={14}/>{state.vehicleName}</div><p><b>{state.vehicleSpeed.toString().padStart(2,'0')}</b><span>km/h</span><strong>{state.vehicleGear}</strong></p><small>W 油门 · S 刹车 / 倒车</small><button onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);engine.current?.touchMove('Space',true);}} onPointerUp={()=>engine.current?.touchMove('Space',false)} onPointerCancel={()=>engine.current?.touchMove('Space',false)}>空格 · 刹车</button></div>}
+      {state.attackHit && <div className="hit-indicator" aria-label="击中">×</div>}
       {state.active && <div className="playing-hint">{state.fallback ? '按住画面拖动观察' : '鼠标环顾'}<span>ESC 释放鼠标</span></div>}
       <aside className={`map-panel ${mapOpen ? '' : 'map-collapsed'}`}>
         <div className="map-header"><span><Map size={14} /> 街区导航</span><button onClick={() => setMapOpen(!mapOpen)} aria-label={mapOpen ? '收起地图' : '展开地图'}>{mapOpen ? '−' : '+'}</button></div>
@@ -78,10 +82,10 @@ export default function CityPage() {
           <text x="272" y="28" fill="#d0e5e2" fontSize="13">N</text>
         </svg><div className="map-footer"><span><span className="map-dot" /> {state.mode !== 'aerial' ? '你的位置' : '蓝湾全境'}</span><span>0 ─── 100 m</span></div></>}
       </aside>
-      <footer className="bottom-bar"><div className="keyboard-hints"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span><span><kbd>SHIFT</kbd> 加速跑</span><span><kbd>SPACE</kbd> 跳跃</span><span><kbd>V</kbd> 人称</span></div><div className="bottom-tools"><button className="sprint-button" aria-pressed={state.sprinting} title="按住 Shift 加速；Q 或点击切换持续跑步" onClick={() => engine.current?.toggleSprint()}><Footprints size={14} /><span>{state.sprinting ? '跑步 · 开' : '加速跑步'}</span></button><button onClick={() => engine.current?.reset()} title="重置位置 R"><RotateCcw size={14} /><span>重置</span></button><button onClick={switchQuality}>画质 · {['流畅','均衡','精致'][quality]}</button><span className="fps"><i />{state.fps || '—'} FPS</span><button onClick={() => { engine.current?.pause(); setHelp(!help); }} aria-label="操作帮助">?</button></div></footer>
+      <footer className="bottom-bar"><div className="keyboard-hints"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> {state.driving?'驾驶':'移动'}</span><span><kbd>{state.driving?'F':'SHIFT'}</kbd> {state.driving?'下车':'加速跑'}</span><span><kbd>SPACE</kbd> {state.driving?'刹车':'跳跃'}</span><span><kbd>V</kbd> 人称</span></div><div className="bottom-tools">{!state.driving && <button className="sprint-button" aria-pressed={state.sprinting} title="按住 Shift 加速；Q 或点击切换持续跑步" onClick={() => engine.current?.toggleSprint()}><Footprints size={14} /><span>{state.sprinting ? '跑步 · 开' : '加速跑步'}</span></button>}{!state.driving&&<button className="combat-button" onClick={()=>engine.current?.punch()} title="J 或锁定鼠标后的左键出拳"><Hand size={14}/><span>J 出拳</span></button>}<button onClick={() => engine.current?.reset()} title="重置位置 R"><RotateCcw size={14} /><span>重置</span></button><button onClick={switchQuality}>画质 · {['流畅','均衡','精致'][quality]}</button><span className="fps"><i />{state.fps || '—'} FPS</span><button onClick={() => { engine.current?.pause(); setHelp(!help); }} aria-label="操作帮助">?</button></div></footer>
       <div className="touch-controls" style={state.mode === 'aerial' ? { display: 'none' } : undefined}>{[['KeyW',ArrowUp],['KeyA',ArrowLeft],['KeyS',ArrowDown],['KeyD',ArrowRight]].map(([code,Icon]) => { const Arrow = Icon as typeof ArrowUp; return <button key={code as string} aria-label={`${code} 移动`} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); engine.current?.touchMove(code as string,true); }} onPointerUp={() => engine.current?.touchMove(code as string,false)} onPointerCancel={() => engine.current?.touchMove(code as string,false)}><Arrow /></button>; })}</div>
     </>}
-    {help && <div className="help-panel"><button className="help-close" aria-label="关闭帮助" onClick={() => setHelp(false)}><X size={18} /></button><Compass size={24} /><h2>探索这座城</h2><p>点击「进入街区」后，使用 WASD 移动、鼠标转头。按住 Shift 加速跑，Q 或底部按钮切换持续跑步；空格跳跃。靠近座椅时按 E 坐下，再按 E 或方向键起身。</p><p>Esc 暂停并释放鼠标。V 切换第一 / 第三人称，B 切换鸟瞰，M 收放地图，R 返回入口。也可以使用左下角地点快速前往街区。</p><p>若浏览器不允许锁定鼠标，可按住画面拖动观察。</p><a href="/credits.html" target="_blank" rel="noreferrer" style={{fontSize:12,textDecoration:"underline",color:"#bdd8d0"}}>素材鸣谢与许可</a></div>}
+    {help && <div className="help-panel"><button className="help-close" aria-label="关闭帮助" onClick={() => setHelp(false)}><X size={18} /></button><Compass size={24} /><h2>探索这座城</h2><p>点击「进入街区」后，使用 WASD 移动、鼠标转头。按住 Shift 加速跑，Q 或底部按钮切换持续跑步；空格跳跃。靠近座椅时按 E 坐下，再按 E 或方向键起身。按 J 或锁定鼠标后的左键出拳，附近路人会受击并躲避。</p><p>靠近任意车辆按 F 上车。W 加速、S 刹车并倒车、A/D 转向、空格急刹。停稳后按 F 下车，车辆留在原地。V 可切换驾驶舱与跟车视角。</p><p>Esc 暂停并释放鼠标。V 切换第一 / 第三人称，B 切换鸟瞰，M 收放地图，R 返回入口。也可以使用左下角地点快速前往街区。</p><p>若浏览器不允许锁定鼠标，可按住画面拖动观察。</p><a href="/credits.html" target="_blank" rel="noreferrer" style={{fontSize:12,textDecoration:"underline",color:"#bdd8d0"}}>素材鸣谢与许可</a></div>}
     {toast && <div className="toast" role="status"><LocateFixed size={16} />{toast}</div>}
   </main>;
 }

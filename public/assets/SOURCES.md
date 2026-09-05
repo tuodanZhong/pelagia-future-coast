@@ -79,5 +79,10 @@ SitDown, SeatedIdle and StandUp are retargeted from the official Microsoft Rocke
 ## Detailed traffic
 Two licensed vehicle assets, optimized for instanced traffic with independent wheel movement. Authors, licenses and adaptation notices are listed in VEHICLE-ATTRIBUTION.md and the application's /credits.html page.
 
+## Driving poses and unarmed interaction
+`driving-idle.json` and `driving-concept.json` adapt the verified Rocketbox seated-breathing motion to the SUV and the central-seat concept car, respectively. They retain the original player skeleton and use rotation-only arm/leg IK plus root placement. Each 8-second loop fits the corresponding car's actual seat and cabin. The SUV steering-wheel geometry is newly authored for the project.
+
+`punch.json` is an original procedural right straight punch based on the player's embedded neutral Idle pose, with authored arm targets, finger closure and torso rotation. It is not captured punch mocap. Duration is 0.65 seconds with contact at 0.28 seconds. All three clips retain 82 quaternion tracks and one root-position track; no bone lengths or non-root positions are overwritten. Existing Microsoft Rocketbox MIT licensing remains distributed in LICENSE-Rocketbox.md.
+
 ## Street life and traffic signals
 Market stalls, shopfronts, fixtures, menu graphics, furnishings, and signal poles/lenses were procedurally authored for this project; no external model or texture is used for these additions. Tower company identities and logos are original fictional designs. The clothing displays, grand/upright pianos, store graphics and glazing were also authored for this project.

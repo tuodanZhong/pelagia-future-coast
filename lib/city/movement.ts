@@ -1,4 +1,4 @@
-export type Obstacle = { x: number; z: number; rx: number; rz: number; shape?: 'ellipse' | 'box'; height?: number };
+export type Obstacle = { x: number; z: number; rx: number; rz: number; shape?: 'ellipse' | 'box'; height?: number; yaw?:number };
 export const WORLD_EDGE = 145;
 export const EYE_HEIGHT = 1.85;
 export const SPAWN = { x: 18, z: 116, yaw: 0.15, pitch: 0.24 };
@@ -11,9 +11,11 @@ export function groundHeight(x:number,z:number) {
 }
 export function isWalkable(x: number, z: number, obstacles: Obstacle[], radius = 0.34) {
   if (!Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) > WORLD_EDGE || Math.abs(z) > WORLD_EDGE) return false;
-  return !obstacles.some(o => o.shape === 'box'
-    ? Math.abs(x - o.x) < o.rx + radius && Math.abs(z - o.z) < o.rz + radius
-    : ((x - o.x) / (o.rx + radius)) ** 2 + ((z - o.z) / (o.rz + radius)) ** 2 < 1);
+  return !obstacles.some(o=>insideObstacle(x,z,o,radius));
+}
+export function insideObstacle(x:number,z:number,o:Obstacle,radius=0){
+  const dx=x-o.x,dz=z-o.z,c=Math.cos(o.yaw??0),s=Math.sin(o.yaw??0),u=dx*c-dz*s,v=dx*s+dz*c;
+  return o.shape==='box'?Math.abs(u)<o.rx+radius&&Math.abs(v)<o.rz+radius:(u/(o.rx+radius))**2+(v/(o.rz+radius))**2<1;
 }
 export function moveWithCollisions(x: number, z: number, dx: number, dz: number, obstacles: Obstacle[]) {
   const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.3));
@@ -22,6 +24,14 @@ export function moveWithCollisions(x: number, z: number, dx: number, dz: number,
     if (isWalkable(x, z + dz / steps, obstacles)) z += dz / steps;
   }
   return { x, z };
+}
+export function clearArrival(x:number,z:number,obstacles:Obstacle[]){
+  if(isWalkable(x,z,obstacles))return {x,z};
+  for(let radius=.5;radius<=16;radius+=.5)for(let i=0;i<32;i++){
+    const angle=i/32*Math.PI*2,p={x:x+Math.sin(angle)*radius,z:z+Math.cos(angle)*radius};
+    if(isWalkable(p.x,p.z,obstacles))return p;
+  }
+  return undefined;
 }
 export function movementVector(forward: number, right: number, yaw: number, speed: number, dt: number) {
   const n = Math.max(1, Math.hypot(forward, right));
