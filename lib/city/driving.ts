@@ -116,8 +116,9 @@ function integrateSpeed(speed:number,throttle:number,brake:number,steer:number,d
   return clamp(speed,-c.maxReverse,c.maxForward);
 }
 function advancedPose(s:DrivingState,distance:number,c:DrivingConfig):DrivingState {
-  const beta=Math.atan(.5*Math.tan(s.steer));
-  const turn=distance*Math.cos(beta)*Math.tan(s.steer)/c.wheelbase;
+  // Looking forward along +Z, the driver's right is local -X.
+  const beta=-Math.atan(.5*Math.tan(s.steer));
+  const turn=-distance*Math.cos(beta)*Math.tan(s.steer)/c.wheelbase;
   const heading=s.yaw+beta+turn*.5;
   return {...s,x:s.x+distance*Math.sin(heading),z:s.z+distance*Math.cos(heading),yaw:angle(s.yaw+turn)};
 }
@@ -173,7 +174,7 @@ export function findSafeExit(car:VehicleBody,environment:DrivingEnvironment,opti
   const ignore=environment.ignoreVehicleId??car.id;
   const clear=(p:Point)=>!collisionForRectangle(rectangle({...p,yaw:0,width:radius*2,length:radius*2}),environment,ignore);
   for(const side of sides){
-    const sign=side==='left'?-1:1,doorU=sign*(width/2+radius+.075);
+    const sign=side==='left'?1:-1,doorU=sign*(width/2+radius+.075);
     // Front seat first; rear door is a fallback when the front door is obstructed.
     for(const v of [.38,-.66,1.05,-1.2].filter(v=>Math.abs(v)<length/2-.25)){
       const door=localPoint(car,doorU,v);if(!clear(door))continue;

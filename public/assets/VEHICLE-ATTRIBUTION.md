@@ -9,7 +9,7 @@ Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarC
 Original GLB: https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb
 The upstream asset is based on **FREE Concept Car 004** by **Unity Fan**, CC0: https://sketchfab.com/3d-models/free-concept-car-004-public-domain-cc0-4cba124633eb494eadc3bb0c4660ad7e
 
-Changes for Pelagia: reduced polygon count with normal-aware simplification; removed hidden engine/pedals/seat frames, license plate, logo textures and material variants; consolidated PBR materials; converted window material to tinted reflective glass; reduced tyre texture resolution to 512 pixels; preserved tyre tangents; straightened front wheels and reset wheel pivots; centered and grounded the vehicle. Geometry, material and texture changes are adaptations. No endorsement by the original authors is implied.
+Changes for Pelagia: reduced polygon count with normal-aware simplification; removed hidden engine/pedals/seat frames, license plate, logo textures and material variants; consolidated PBR materials; converted window material to tinted reflective glass; reduced tyre texture resolution to 512 pixels; preserved tyre tangents; straightened front wheels and reset wheel pivots; centered and grounded the vehicle; separated the existing steering-wheel geometry into its own pivoted node, preserving its original materials and neutral placement. Geometry, material and texture changes are adaptations. No endorsement by the original authors is implied.
 
 The original license file is preserved as `CarConcept-LICENSE-original.md`; the full CC-BY-4.0 legal code is `LICENSE-CC-BY-4.0.txt`.
 

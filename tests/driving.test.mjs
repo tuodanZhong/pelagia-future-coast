@@ -31,9 +31,9 @@ test('opposite throttle brakes before reverse, brake holds at zero',()=>{
 
 test('steering follows bicycle direction while reversing and auto-centres',()=>{
   const forward=drive({x:0,z:0,yaw:0,speed:3},{throttle:1,steer:1},.7);
-  assert.ok(forward.state.yaw>.1&&forward.state.x>0);assert.ok(forward.state.steer>0);
+  assert.ok(forward.state.yaw<-.1&&forward.state.x<0);assert.ok(forward.state.steer>0);
   const reverse=drive({x:0,z:0,yaw:0,speed:-3},{throttle:-1,steer:1},.7);
-  assert.ok(reverse.state.yaw<-.1&&reverse.state.x<0);
+  assert.ok(reverse.state.yaw>.1&&reverse.state.x>0);
   const centred=drive(forward.state,idle,.5);assert.equal(centred.state.steer,0);
 });
 
@@ -92,13 +92,13 @@ test('self filtering is explicit, and unnamed other cars remain collidable',()=>
 test('safe exits prefer driver side, avoid the car, and fall back away from a wall',()=>{
   const car={id:'self',x:0,z:0,yaw:0};
   const preferred=findSafeExit(car,{obstacles:[],vehicles:[car]});
-  assert.equal(preferred.side,'left');assert.ok(preferred.x<-1.44);assert.equal(preferred.yaw,0);
-  const blockedLeft={obstacles:[{x:-2,z:0,rx:.7,rz:5,shape:'box'}],vehicles:[car]};
+  assert.equal(preferred.side,'left');assert.ok(preferred.x>1.44);assert.equal(preferred.yaw,0);
+  const blockedLeft={obstacles:[{x:2,z:0,rx:.7,rz:5,shape:'box'}],vehicles:[car]};
   assert.equal(findSafeExit(car,blockedLeft)?.side,'right');
-  const blockedBoth={...blockedLeft,obstacles:[...blockedLeft.obstacles,{x:2,z:0,rx:.7,rz:5,shape:'box'}]};
+  const blockedBoth={...blockedLeft,obstacles:[...blockedLeft.obstacles,{x:-2,z:0,rx:.7,rz:5,shape:'box'}]};
   assert.equal(findSafeExit(car,blockedBoth),undefined);
   const atEdge={id:'edge',x:143.7,z:0,yaw:0,width:2.2};
-  assert.equal(findSafeExit(atEdge,EMPTY,{side:'right'})?.side,'left');
+  assert.equal(findSafeExit(atEdge,EMPTY,{side:'left'})?.side,'right');
 });
 
 test('exit cannot place a pedestrian inside other vehicles or an ellipse',()=>{

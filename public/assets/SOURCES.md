@@ -86,3 +86,6 @@ Two licensed vehicle assets, optimized for instanced traffic with independent wh
 
 ## Street life and traffic signals
 Market stalls, shopfronts, fixtures, menu graphics, furnishings, and signal poles/lenses were procedurally authored for this project; no external model or texture is used for these additions. Tower company identities and logos are original fictional designs. The clothing displays, grand/upright pianos, store graphics and glazing were also authored for this project.
+
+## Vehicle impact reactions
+`impact-air.json`, `impact-ground.json`, and `impact-recover.json` are authored procedural reaction poses based on the Rocketbox neutral body rotation reference. They contain 21 quaternion tracks each and retain each model's own bind-position proportions. They are game reaction animations, not captured fall mocap. Runtime physics supplies knockback and gravity. `impact-grounding.json` stores precomputed exact skinned-vertex ground offsets for all eight model proportions, avoiding per-frame vertex traversal. The Microsoft Rocketbox MIT license remains distributed in LICENSE-Rocketbox.md.

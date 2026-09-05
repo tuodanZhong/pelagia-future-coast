@@ -19,6 +19,7 @@ export function createTrafficRoute(reverse=false) {
 }
 export function brakingSpeed(speed:number,target:number,dt:number){return THREE.MathUtils.clamp(target,speed-4.5*dt,speed+1.8*dt);}
 export type Vehicle={id:string;position:THREE.Vector3;yaw:number;manual?:DrivingState;model:string;distance:number;reverse:boolean;speed:number;cruise:number;paint:string;matrix:THREE.Matrix4;roll:number;steer:number;obstacle:Obstacle;parked?:THREE.Vector3};
+export type VehiclePose={id:string;x:number;z:number;yaw:number;length:number;width:number;height:number;speed:number;distance:number;roll:number;steer:number};
 type Batch={mesh:THREE.InstancedMesh;part:THREE.Matrix4;wheel:boolean;front:boolean;cars:Vehicle[];cockpit?:boolean};
 export class Traffic {
   readonly root=new THREE.Group();
@@ -59,7 +60,7 @@ export class Traffic {
     template.traverse(obj=>{
       if(!(obj instanceof THREE.Mesh))return;
       let wheel:THREE.Object3D|undefined;
-      for(let parent:THREE.Object3D|null=obj;parent&&parent!==template;parent=parent.parent)if(/^Wheel(Front|Rear)/.test(parent.name))wheel=parent;
+      for(let parent:THREE.Object3D|null=obj;parent&&parent!==template;parent=parent.parent)if(/^Wheel(Front|Rear)/.test(parent.name)||parent.name==='SteeringWheel')wheel=parent;
       const inverse=wheel?wheel.matrixWorld.clone().invert():new THREE.Matrix4();
       const materials=Array.isArray(obj.material)?obj.material:[obj.material];
       const ranges=Array.isArray(obj.material)?obj.geometry.groups:[{start:0,count:obj.geometry.index?.count??obj.geometry.attributes.position.count,materialIndex:0}];
@@ -83,7 +84,7 @@ export class Traffic {
       if(this.reflection&&['Paint','Glass'].includes(material.name))material.envMap=this.reflection;
       const mesh=new THREE.InstancedMesh(geometry,material,cars.length);mesh.castShadow=true;mesh.receiveShadow=true;mesh.frustumCulled=false;
       if(material.name==='Paint')cars.forEach((c,i)=>mesh.setColorAt(i,new THREE.Color(c.paint)));
-      this.root.add(mesh);this.batches.push({mesh,part:g.part,wheel:g.name!=='Body',front:g.name.includes('Front'),cars});
+      this.root.add(mesh);this.batches.push({mesh,part:g.part,wheel:g.name.startsWith('Wheel'),front:g.name.includes('Front'),cockpit:g.name==='SteeringWheel',cars});
     }
     template.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose());}});
     this.writeMatrices();
@@ -126,6 +127,14 @@ export class Traffic {
     const car=this.controlled;if(!car)return;
     car.speed=0;if(car.manual)car.manual.speed=0;this.controlled=undefined;
   }
+  poses():VehiclePose[]{return this.cars.map(c=>({id:c.id,x:c.position.x,z:c.position.z,yaw:c.yaw,length:4.9,width:2.2,height:c.model==='concept'?1.2:2.1,speed:c.speed,distance:c.distance,roll:c.roll,steer:c.steer}));}
+  stopBeforeImpact(pose:VehiclePose){
+    const car=this.cars.find(c=>c.id===pose.id);if(!car)return;
+    car.position.set(pose.x,groundHeight(pose.x,pose.z),pose.z);car.yaw=pose.yaw;car.distance=pose.distance;car.roll=pose.roll;car.steer=pose.steer;car.speed=0;
+    if(car.manual)car.manual={...car.manual,x:pose.x,z:pose.z,yaw:pose.yaw,speed:0,steer:pose.steer};
+    this.place(car);this.writeMatrices();
+  }
+  absorbImpact(id:string,hits:number){const car=this.cars.find(c=>c.id===id);if(!car)return;car.speed*=Math.pow(.9,hits);if(car.manual)car.manual.speed=car.speed;}
   drive(dt:number,input:DrivingInput) {
     const car=this.controlled;if(!car?.manual)return false;
     const result=stepDriving(car.manual,input,dt,this.environment(car));car.manual=result.state;
@@ -171,7 +180,7 @@ export class Traffic {
         if(dt>0&&vehicleCollision({x:next.x,z:next.z,yaw,length:4.9,width:2.2},{obstacles:[],vehicles:others},.04)){car.speed=0;this.place(car);continue;}
         car.distance=distance;car.roll+=travel/(car.model==='concept'?.384:.379);
         const future=route.getTangentAt(THREE.MathUtils.euclideanModulo(car.distance+sign*1.6,length)/length).multiplyScalar(sign);
-        car.steer=THREE.MathUtils.clamp(Math.atan2(dir.z*future.x-dir.x*future.z,dir.dot(future))*1.6,-.5,.5);
+        car.steer=THREE.MathUtils.clamp(Math.atan2(dir.x*future.z-dir.z*future.x,dir.dot(future))*1.6,-.5,.5);
         car.position.copy(next);car.yaw=Math.atan2(dir.x,dir.z);
       }
       this.place(car);
@@ -184,8 +193,8 @@ export class Traffic {
       batch.cars.forEach((car,index)=>{
         this.matrix.copy(car.matrix).multiply(batch.part);
         if(this.cockpitView&&car===this.controlled&&(batch.mesh.material as THREE.Material).name==='Glass')this.matrix.scale(new THREE.Vector3(0,0,0));
-        if(batch.cockpit)this.matrix.multiply(spin.makeRotationZ(-car.steer*1.8));
-        if(batch.wheel){if(batch.front)this.matrix.multiply(steering.makeRotationY(car.steer));this.matrix.multiply(spin.makeRotationX(car.roll));}
+        if(batch.cockpit)this.matrix.multiply(spin.makeRotationZ(car.steer*1.8));
+        if(batch.wheel){if(batch.front)this.matrix.multiply(steering.makeRotationY(-car.steer));this.matrix.multiply(spin.makeRotationX(car.roll));}
         batch.mesh.setMatrixAt(index,this.matrix);
       });batch.mesh.instanceMatrix.needsUpdate=true;
     }

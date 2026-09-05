@@ -306,6 +306,7 @@ export class CityEngine {
     this.elapsed += dt; this.frames++;
     this.signals.update(this.elapsed);
     const car=this.traffic.controlled,held=(key:string)=>this.keys.has(key)||this.tappedKeys.has(key);
+    const previousVehicles=this.traffic.poses();
     this.traffic.cockpitView=!!car&&this.mode==='first';
     const attackFrame=this.attack.update(dt);
     if(car){
@@ -317,6 +318,9 @@ export class CityEngine {
       this.walkPosition.copy(car.position);this.characterYaw=car.yaw;this.tappedKeys.clear();
     }
     this.traffic.update(dt,this.walkPosition,this.signals,this.elapsed);
+    const impactHits=this.characters.updateVehicleImpacts(previousVehicles,this.traffic.poses(),dt,this.elapsed,this.traffic.environment().obstacles,pose=>this.traffic.stopBeforeImpact(pose));
+    for(const [id,hits] of impactHits)this.traffic.absorbImpact(id,hits);
+    if(car){this.walkPosition.copy(car.position);this.characterYaw=car.yaw;}
     const wasSeating=this.seating.frame.phase!=='none',seatFrame=this.seating.update(dt,this.world.obstacles);
     const wasJumping=this.jump.frame.phase!=='grounded',jumpFrame=this.jump.update(dt);
     this.playerSpeed=0;

@@ -6,21 +6,27 @@ import { CITIZENS, PERSON_MODELS, type CitizenSpec, type PersonModel } from './p
 import type { JumpFrame, JumpKind } from './jump';
 import type { SeatFrame, Seat } from './seating';
 import { punchTarget, type AttackFrame } from './combat';
+import { applyVehicleImpact, createImpactState, impactPositionFree, impactPoseTime, stepImpact, sweepVehicleImpact, type ImpactEnvironment, type ImpactState } from './impact';
+import type { VehiclePose } from './traffic';
 
 type Actor={root:THREE.Group;mixer:THREE.AnimationMixer;actions:Record<string,THREE.AnimationAction>;action:string;yaw:number};
-type Citizen=Actor&{spec:CitizenSpec;model:PersonModel;distance:number;direction:number;turnPause:number;hitTime:number;fearUntil:number;disturbed:boolean;escapeYaw:number};
+type Citizen=Actor&{spec:CitizenSpec;model:PersonModel;distance:number;direction:number;turnPause:number;hitTime:number;fearUntil:number;disturbed:boolean;escapeYaw:number;impact?:ImpactState;seatReleased?:boolean;impactSeatObstacle?:Obstacle};
+type GroundingModel={pivot:[number,number,number];samples:Record<string,{time:number;rootOffsetY:number}[]>};
 export class Characters {
   player?:Actor;
   citizens:Citizen[]=[];
   private disposed=false;
   private lastNpcUpdate=0;
   private leftJump=false;
+  private grounding:Record<string,GroundingModel>={};
   private jumpClips:Record<string,THREE.AnimationClip>={};
   constructor(private scene:THREE.Scene,manager:THREE.LoadingManager,private obstacles:Obstacle[],onError:()=>void,private seats:Seat[]=[]) {
-    for(const [name,file] of [['jump_idle','jump-idle.json'],['jump_walk','jump-walk.json'],['jump_walk_left','jump-walk-left.json'],['jump_run','jump-run.json'],['sitDown','sit-down.json'],['seated','seated-idle.json'],['standUp','stand-up.json'],['driving_rover','driving-idle.json'],['driving_concept','driving-concept.json'],['punch','punch.json']])new THREE.FileLoader(manager).setResponseType('json').load('/assets/'+file,data=>{
+    new THREE.FileLoader(manager).setResponseType('json').load('/assets/impact-grounding.json',data=>{if(!this.disposed)this.grounding=(data as unknown as {models:Record<string,GroundingModel>}).models;},undefined,onError);
+    for(const [name,file] of [['jump_idle','jump-idle.json'],['jump_walk','jump-walk.json'],['jump_walk_left','jump-walk-left.json'],['jump_run','jump-run.json'],['sitDown','sit-down.json'],['seated','seated-idle.json'],['standUp','stand-up.json'],['driving_rover','driving-idle.json'],['driving_concept','driving-concept.json'],['punch','punch.json'],['impact_air','impact-air.json'],['impact_ground','impact-ground.json'],['impact_recover','impact-recover.json']])new THREE.FileLoader(manager).setResponseType('json').load('/assets/'+file,data=>{
       if(this.disposed)return;
       this.jumpClips[name]=THREE.AnimationClip.parse(data as unknown as THREE.AnimationClipJSON);
       if(this.player)this.player.actions[name]=this.player.mixer.clipAction(this.jumpClips[name]);
+      if(name.startsWith('impact_'))for(const actor of this.citizens)actor.actions[name]=actor.mixer.clipAction(this.jumpClips[name]);
     },undefined,onError);
     PERSON_MODELS.forEach(modelSpec=>new GLTFLoader(manager).load('/assets/'+modelSpec.file,gltf=>{
       if(this.disposed){gltf.scene.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});return;}
@@ -42,7 +48,7 @@ export class Characters {
         });
         const mixer=new THREE.AnimationMixer(model),actions:Record<string,THREE.AnimationAction>={};
         for(const clip of gltf.animations)actions[clip.name.toLowerCase()]=mixer.clipAction(clip);
-        if(index<0)for(const [name,clip] of Object.entries(this.jumpClips))actions[name]=mixer.clipAction(clip);
+        for(const [name,clip] of Object.entries(this.jumpClips))if(index<0||name.startsWith('impact_'))actions[name]=mixer.clipAction(clip);
         const actor={root,mixer,actions,action:'',yaw:0};this.setAction(actor,'idle');mixer.update(.3+(Math.max(0,index)*.19)%2);return actor;
       };
       if(modelSpec.id==='player')this.player=build(-1);
@@ -67,7 +73,9 @@ export class Characters {
     if(actor.action===name)return;
     const next=actor.actions[name]??actor.actions.idle;if(!next)return;
     const old=actor.actions[actor.action],fade=name.startsWith('jump')?.06:.18;
-    if(name.startsWith('driving')||actor.action.startsWith('driving')||['sitDown','seated','standUp'].includes(name)||['sitDown','seated','standUp'].includes(actor.action)){
+    if(name.startsWith('impact_')||actor.action.startsWith('impact_')){
+      actor.mixer.stopAllAction();next.reset().setEffectiveWeight(1).play();
+    }else if(name.startsWith('driving')||actor.action.startsWith('driving')||['sitDown','seated','standUp'].includes(name)||['sitDown','seated','standUp'].includes(actor.action)){
       old?.stop();next.reset().setEffectiveWeight(1).play();
     }else{
       next.reset();
@@ -108,11 +116,83 @@ export class Characters {
     this.setAction(actor,'driving_'+model);actor.mixer.update(dt);
   }
   strike(origin:THREE.Vector3,yaw:number,time:number){
-    const targets=this.citizens.map(actor=>({x:actor.root.position.x,z:actor.root.position.z,actor,seatObstacle:this.seats.find(s=>s.id===actor.spec.seatId)?.obstacle}));
+    const targets=this.citizens.filter(a=>!a.impact||['none','pushed'].includes(a.impact.phase)).map(actor=>({x:actor.root.position.x,z:actor.root.position.z,actor,seatObstacle:actor.seatReleased?undefined:this.seats.find(s=>s.id===actor.spec.seatId)?.obstacle}));
     const selected=punchTarget(origin,yaw,targets,this.obstacles);if(!selected)return false;
     const actor=selected.actor;actor.hitTime=time;actor.fearUntil=time+7;actor.escapeYaw=Math.atan2(actor.root.position.x-origin.x,actor.root.position.z-origin.z);actor.disturbed=true;
-    for(const witness of this.citizens)if(witness!==actor&&!witness.spec.seatId&&witness.root.position.distanceTo(actor.root.position)<4){witness.fearUntil=time+4;witness.escapeYaw=Math.atan2(witness.root.position.x-origin.x,witness.root.position.z-origin.z);witness.disturbed=true;}
+    for(const witness of this.citizens)if(witness!==actor&&(!witness.spec.seatId||witness.seatReleased)&&witness.root.position.distanceTo(actor.root.position)<4){witness.fearUntil=time+4;witness.escapeYaw=Math.atan2(witness.root.position.x-origin.x,witness.root.position.z-origin.z);witness.disturbed=true;}
     return true;
+  }
+  /** Resolve the whole swept traffic path before visibility/animation throttling. */
+  updateVehicleImpacts(previous:VehiclePose[],current:VehiclePose[],dt:number,time:number,obstacles:Obstacle[],stopVehicle:(pose:VehiclePose)=>void){
+    const hits=new Map<string,number>(),before=new Map(previous.map(p=>[p.id,p]));
+    const environment=(actor:Citizen):ImpactEnvironment=>({obstacles,vehicles:current,ignoreObstacles:actor.impactSeatObstacle?[actor.impactSeatObstacle]:undefined});
+    for(const actor of this.citizens){
+      if(!actor.impact||actor.impact.phase==='none'){
+        const cooldown=actor.impact?.cooldown??0;
+        actor.impact={...createImpactState({x:actor.root.position.x,z:actor.root.position.z,radius:actor.model.height<1.4?.26:.34}),cooldown,yaw:actor.yaw};
+      }
+      if(actor.spec.seatId&&!actor.seatReleased)actor.impactSeatObstacle=this.seats.find(s=>s.id===actor.spec.seatId)?.obstacle;
+    }
+    for(let index=0;index<current.length;index++){
+      const vehicle=current[index],old=before.get(vehicle.id);if(!old)continue;
+      const contacts=[];let blocked=false;
+      for(const actor of this.citizens){
+        const state=actor.impact!;
+        const contact=sweepVehicleImpact(old,vehicle,{...state,elevation:state.height,height:actor.model.height},dt);if(!contact)continue;
+        const result=applyVehicleImpact(state,contact,vehicle,environment(actor));
+        if(result.blocked){blocked=true;break;}
+        contacts.push({actor,result});
+      }
+      // If nobody can move clear, roll back this car before committing any of its contacts.
+      if(blocked){current[index]=old;stopVehicle(old);continue;}
+      for(const {actor,result} of contacts){
+        actor.impact=result.state;actor.disturbed=true;
+        if(result.applied){
+          hits.set(vehicle.id,(hits.get(vehicle.id)??0)+1);actor.fearUntil=time+7;actor.hitTime=-100;
+          actor.escapeYaw=result.state.yaw+Math.PI;
+          if(actor.spec.seatId&&!actor.seatReleased){
+            const seat=this.seats.find(s=>s.id===actor.spec.seatId);if(seat)seat.occupied=false;
+            actor.seatReleased=true;
+          }
+        }
+      }
+    }
+    for(const actor of this.citizens){
+      const old=actor.impact!,env=environment(actor);
+      actor.impact=stepImpact(old,dt,env);
+      if(old.phase!=='none'||actor.impact.phase!=='none')this.poseImpact(actor);
+      if(actor.seatReleased&&actor.impactSeatObstacle&&impactPositionFree(actor.impact,{obstacles:[actor.impactSeatObstacle]},actor.impact.radius))actor.impactSeatObstacle=undefined;
+    }
+    return hits;
+  }
+  private poseImpact(actor:Citizen){
+    const state=actor.impact!,{phase}=state;
+    actor.yaw=state.yaw;
+    if(phase==='none'||phase==='pushed'){
+      actor.root.rotation.set(0,state.yaw,0);actor.root.position.set(state.x,groundHeight(state.x,state.z),state.z);
+      this.setAction(actor,'idle');actor.mixer.update(0);
+      if(phase==='pushed'){actor.escapeYaw=state.yaw+Math.PI;this.recoil(actor,state.time);}
+      return;
+    }
+    const poseTime=impactPoseTime(state);
+    const name=phase==='airborne'?'impact_air':phase==='down'?'impact_ground':'impact_recover';
+    this.setAction(actor,name);
+    const action=actor.actions[name];if(action){action.paused=true;action.time=Math.min(poseTime,action.getClip().duration-.00001);}
+    actor.mixer.update(0);
+    const model=this.grounding[actor.model.id],samples=model?.samples[phase];
+    let offset=0;
+    if(samples?.length){
+      const index=samples.findIndex(p=>p.time>=poseTime);
+      if(index===0)offset=samples[0].rootOffsetY;
+      else if(index<0)offset=samples[samples.length-1].rootOffsetY;
+      else{const a=samples[index-1],b=samples[index],t=(poseTime-a.time)/(b.time-a.time);offset=THREE.MathUtils.lerp(a.rootOffsetY,b.rootOffsetY,t);}
+    }
+    const yaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),state.yaw);
+    const tilt=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-state.tilt);
+    const pivot=new THREE.Vector3(...(model?.pivot??[0,actor.model.height*.48,0]));
+    const compensation=pivot.clone().sub(pivot.clone().applyQuaternion(tilt)).applyQuaternion(yaw);
+    actor.root.quaternion.copy(yaw).multiply(tilt);
+    actor.root.position.set(state.x,groundHeight(state.x,state.z)+state.height+offset+.007,state.z).add(compensation);
   }
   private recoil(actor:Citizen,age:number){
     if(age<0||age>.44)return;
@@ -131,9 +211,10 @@ export class Characters {
     this.citizens.forEach(actor=>{
       const {spec,model}=actor;
       const near=Math.hypot(actor.root.position.x-player.x,actor.root.position.z-player.z)<78;
-      actor.root.visible=aerial||near;if(!near||aerial)return;
+      actor.root.visible=aerial||near;if(actor.impact&&actor.impact.phase!=='none')return;
+      if(!near||aerial)return;
       const hitAge=time-actor.hitTime;
-      if(spec.seatId){this.setAction(actor,'seated');actor.mixer.update(step);this.recoil(actor,hitAge);return;}
+      if(spec.seatId&&!actor.seatReleased){this.setAction(actor,'seated');actor.mixer.update(step);this.recoil(actor,hitAge);return;}
       if(actor.disturbed){
         let moving=false;
         if(hitAge<.42){
