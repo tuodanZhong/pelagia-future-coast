@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildWorld } from './world';
@@ -21,6 +26,10 @@ export class CityEngine {
   keys = new Set<string>();
   private tappedKeys = new Set<string>();
   quality = 1;
+  private composer!: EffectComposer;
+  private ao!: GTAOPass;
+  private backgroundTexture?: THREE.DataTexture;
+  private lastShadow = 0;
   private frame = 0;
   private dead = false;
   private dragging = false;
@@ -45,14 +54,14 @@ export class CityEngine {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.92;
+    this.renderer.toneMappingExposure = 1.08;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.domElement.setAttribute('aria-label', '未来海岸三维场景，点击后使用 WASD 移动，鼠标观察');
     this.renderer.domElement.tabIndex = 0;
     container.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color('#bed7e2');
-    this.scene.fog = new THREE.FogExp2('#bfd6df', 0.0009);
+    this.scene.fog = new THREE.FogExp2('#c1d0d5', 0.00065);
     const sky = new Sky(); sky.scale.setScalar(8000);
     const uniforms = sky.material.uniforms;
     uniforms.turbidity.value = 2.5; uniforms.rayleigh.value = 0.75;
@@ -63,12 +72,33 @@ export class CityEngine {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const envScene = new THREE.Scene(); const envSky = sky.clone(); envScene.add(envSky);
     this.environment = pmrem.fromScene(envScene, 0.03, 0.1, 10000); this.scene.environment = this.environment.texture; this.scene.environmentIntensity = 0.23; pmrem.dispose();
-    this.scene.add(new THREE.HemisphereLight('#d5ebff', '#7b8270', 0.7));
-    this.sun = new THREE.DirectionalLight('#fff6e6', 2.8); this.sun.position.set(-140, 210, 100);
-    this.sun.castShadow = true; this.sun.shadow.mapSize.set(2048, 2048);
+    this.scene.add(new THREE.HemisphereLight('#d5ebff', '#7b8270', 0.42));
+    this.sun = new THREE.DirectionalLight('#fff4dc', 3.0); this.sun.position.set(-130, 180, 120);
+    this.sun.castShadow = true; this.sun.shadow.mapSize.set(4096, 4096);
     Object.assign(this.sun.shadow.camera, { left: -210, right: 210, top: 200, bottom: -200, near: 1, far: 650 });
-    this.sun.shadow.bias = -0.00025; this.sun.shadow.normalBias = 0.5; this.scene.add(this.sun);
+    this.sun.shadow.bias = -0.00004; this.sun.shadow.normalBias = 0.04; this.scene.add(this.sun);
     this.world = buildWorld(this.scene);
+    const target = new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,samples:4});
+    this.composer = new EffectComposer(this.renderer,target);
+    this.composer.addPass(new RenderPass(this.scene,this.camera));
+    this.ao = new GTAOPass(this.scene,this.camera,1,1);
+    this.ao.updateGtaoMaterial({radius:1.6,thickness:1.3,distanceFallOff:1,scale:1,samples:8,screenSpaceRadius:false});
+    this.ao.updatePdMaterial({radius:4,rings:2,samples:8});this.ao.blendIntensity=.75;
+    this.composer.addPass(this.ao);this.composer.addPass(new OutputPass());
+    // One reflection probe captures real buildings and landscape, then is reused.
+    new HDRLoader().load('/assets/kloppenheim_05_puresky_1k.hdr', texture => {
+      if(this.dead){texture.dispose();return;}
+      texture.mapping=THREE.EquirectangularReflectionMapping;this.backgroundTexture=texture;
+      const pm=new THREE.PMREMGenerator(this.renderer);this.environment.dispose();
+      this.environment=pm.fromEquirectangular(texture);this.scene.environment=this.environment.texture;this.scene.environmentIntensity=.65;
+      this.scene.background=texture;this.scene.backgroundIntensity=1.3;this.scene.backgroundBlurriness=.025;sky.visible=false;
+      this.renderer.shadowMap.needsUpdate=true;
+      const capture=new THREE.WebGLCubeRenderTarget(128,{type:THREE.HalfFloatType});
+      const probe=new THREE.CubeCamera(.3,3000,capture);probe.position.set(0,28,58);probe.update(this.renderer,this.scene);
+      this.environment.dispose();this.environment=pm.fromCubemap(capture.texture);this.scene.environment=this.environment.texture;this.scene.environmentIntensity=.8;
+      capture.dispose();pm.dispose();this.renderer.shadowMap.needsUpdate=true;
+    },undefined,()=>this.notice('天空贴图未能加载，已切换到程序天空。'));
+
     this.camera.position.copy(this.walkPosition); this.applyLook();
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbit.enabled = false; this.orbit.enableDamping = true; this.orbit.minDistance = 170; this.orbit.maxDistance = 580;
@@ -108,7 +138,7 @@ export class CityEngine {
     this.emit(); this.frame = requestAnimationFrame(this.tick);
   }
   private listen(target: EventTarget, name: string, listener: EventListener) { target.addEventListener(name, listener); this.disposers.push(() => target.removeEventListener(name, listener)); }
-  private resize = () => { const { clientWidth: w, clientHeight: h } = this.container; this.renderer.setSize(w, h); this.camera.aspect = w / Math.max(h, 1); this.camera.updateProjectionMatrix(); };
+  private resize = () => { const { clientWidth: w, clientHeight: h } = this.container; this.renderer.setSize(w, h); this.camera.aspect = w / Math.max(h, 1); this.camera.updateProjectionMatrix(); if(this.composer){this.composer.setSize(w,h);this.ao.setSize(Math.max(1,Math.round(w*.72)),Math.max(1,Math.round(h*.72)));} };
   private onKeyDown = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement)?.closest('button,input,select,textarea')) return;
     if (e.code === 'Escape') { this.pause(); return; }
@@ -148,7 +178,8 @@ export class CityEngine {
   }
   setQuality(quality: number) {
     this.quality = quality; this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, [1, 1.5, 2][quality]));
-    this.renderer.shadowMap.enabled = quality > 0; this.sun.shadow.mapSize.setScalar(quality === 2 ? 4096 : 2048);
+    this.renderer.shadowMap.enabled = quality > 0; this.sun.shadow.mapSize.setScalar(quality === 0 ? 1024 : 4096);
+    this.ao.enabled=quality>0;this.ao.blendIntensity=quality===2?.9:.75;this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; this.renderer.shadowMap.needsUpdate = true; this.resize();
   }
   touchMove(code: string, down: boolean) { if (down) { if (this.mode !== 'walk') this.setMode('walk'); this.active = true; this.fallback = true; this.keys.add(code); } else this.keys.delete(code); this.emit(); }
@@ -175,7 +206,10 @@ export class CityEngine {
       this.verticalSpeed -= 13 * dt; this.camera.position.y = Math.max(EYE_HEIGHT, this.camera.position.y + this.verticalSpeed * dt);
       if (this.camera.position.y === EYE_HEIGHT) this.verticalSpeed = 0;
     } else if (this.mode === 'aerial') this.orbit.update();
-    this.world.update(this.elapsed); this.renderer.render(this.scene, this.camera);
+    this.world.update(this.elapsed);
+    if(this.elapsed-this.lastShadow>.12){this.renderer.shadowMap.needsUpdate=true;this.lastShadow=this.elapsed;}
+    this.renderer.info.autoReset=false;this.renderer.info.reset();
+    this.composer.render(dt);
     // The island is static. Reuse its shadow map between frames.
     this.renderer.shadowMap.autoUpdate = false;
     if (now - this.lastReport > 200) { this.emit(Math.round(this.frames * 1000 / (now - this.lastReport))); this.frames = 0; this.lastReport = now; }
@@ -184,6 +218,8 @@ export class CityEngine {
     this.dead = true; cancelAnimationFrame(this.frame); this.pause(); this.disposers.forEach(fn => fn()); this.resizeObserver.disconnect(); this.orbit.dispose();
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
     this.scene.traverse(obj => { if (obj instanceof THREE.InstancedMesh) obj.dispose(); if (obj instanceof THREE.Mesh) { geometries.add(obj.geometry); (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach(m => materials.add(m)); } });
-    geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); this.environment.dispose(); this.sun.shadow.dispose(); this.renderer.dispose(); this.renderer.domElement.remove();
+    geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); this.environment.dispose();this.backgroundTexture?.dispose();
+    for(const m of materials){for(const v of Object.values(m))if(v instanceof THREE.Texture)v.dispose();}
+    this.composer.passes.forEach(p=>p.dispose());this.composer.dispose();this.sun.shadow.dispose(); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }

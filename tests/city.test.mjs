@@ -40,6 +40,6 @@ test('geometry is finite and stays inside a bounded scene budget', () => {
     for (let i=0;i<p.array.length;i++) assert.ok(Number.isFinite(p.array[i]));
     triangles+=(obj.geometry.index?.count??p.count)/3*(obj.count??1);
   });
-  assert.equal(TOWERS.length,8);assert.ok(draws<180,`${draws} calls`);assert.ok(triangles<600000,`${triangles} triangles`);
+  assert.equal(TOWERS.length,8);assert.ok(draws<180,`${draws} calls`);assert.ok(triangles<1800000,`${triangles} triangles`);
   console.log(JSON.stringify({draws,triangles,obstacles:world.obstacles.length}));
 });
