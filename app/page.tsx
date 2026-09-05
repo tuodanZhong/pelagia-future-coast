@@ -4,7 +4,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Compass, Eye, UserRound, Foo
 import { Button } from '@/components/ui/button';
 import type { CityEngine, CityState } from '@/lib/city/engine';
 import { TOWERS } from '@/lib/city/world';
-const INITIAL: CityState = { ready: false, locked: false, active: false, mode: 'third', x: 18, z: 116, yaw: 0.15, fps: 0, calls: 0, triangles: 0, zone: '滨海广场', fallback: false };
+const INITIAL: CityState = { ready: false, locked: false, active: false, mode: 'third', x: 18, z: 116, yaw: 0.15, fps: 0, calls: 0, triangles: 0, zone: '滨海广场', fallback: false, sprinting:false };
 export default function CityPage() {
   const container = useRef<HTMLDivElement>(null), engine = useRef<CityEngine | null>(null);
   const [state, setState] = useState(INITIAL), [error, setError] = useState(''), [toast, setToast] = useState('');
@@ -52,11 +52,12 @@ export default function CityPage() {
         <div className="location-detail"><span><span className="live-dot" /> 自由探索</span><span>午后 · 海风轻拂</span></div>
         <div className="destination-links">
           <button onClick={() => engine.current?.teleport(18, 116, 0.15, 0.24)} title="前往滨海广场">广场 <ArrowRight size={12} /></button>
+          <button onClick={() => engine.current?.teleport(18.7, 102.7, -1.1, .05)} title="前往海风市集">市集 <ArrowRight size={12} /></button>
           <button onClick={() => engine.current?.teleport(-48, 30, -0.25, 0.2)} title="前往棕榈大道">大道 <ArrowRight size={12} /></button>
           <button onClick={() => engine.current?.teleport(138, 105, 0.8, 0.13)} title="前往滨水步道">滨水 <ArrowRight size={12} /></button>
         </div>
       </aside>
-      {!state.active && state.mode !== 'aerial' && <div className="entry-prompt"><Button className="enter-button" onClick={() => engine.current?.enter()}><Footprints size={18} />进入街区 <ArrowRight size={17} /></Button><span>WASD 移动 · V 切换第一 / 第三人称</span></div>}
+      {!state.active && state.mode !== 'aerial' && <div className="entry-prompt"><Button className="enter-button" onClick={() => engine.current?.enter()}><Footprints size={18} />进入街区 <ArrowRight size={17} /></Button><span>WASD 移动 · Shift 加速 · 空格跳跃</span></div>}
       {state.mode === 'aerial' && <div className="aerial-hint"><Mouse size={16} /> 拖动旋转 · 滚轮缩放 <button onClick={() => engine.current?.enter()}>返回街区 <ArrowRight size={13} /></button></div>}
       {state.active && <div className="playing-hint">{state.fallback ? '按住画面拖动观察' : '鼠标环顾'}<span>ESC 释放鼠标</span></div>}
       <aside className={`map-panel ${mapOpen ? '' : 'map-collapsed'}`}>
@@ -74,10 +75,10 @@ export default function CityPage() {
           <text x="272" y="28" fill="#d0e5e2" fontSize="13">N</text>
         </svg><div className="map-footer"><span><span className="map-dot" /> {state.mode !== 'aerial' ? '你的位置' : '蓝湾全境'}</span><span>0 ─── 100 m</span></div></>}
       </aside>
-      <footer className="bottom-bar"><div className="keyboard-hints"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span><span><kbd>SHIFT</kbd> 奔跑</span><span><kbd>SPACE</kbd> 跳跃</span><span><kbd>V</kbd> 人称</span></div><div className="bottom-tools"><button onClick={() => engine.current?.reset()} title="重置位置 R"><RotateCcw size={14} /><span>重置</span></button><button onClick={switchQuality}>画质 · {['流畅','均衡','精致'][quality]}</button><span className="fps"><i />{state.fps || '—'} FPS</span><button onClick={() => { engine.current?.pause(); setHelp(!help); }} aria-label="操作帮助">?</button></div></footer>
+      <footer className="bottom-bar"><div className="keyboard-hints"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span><span><kbd>SHIFT</kbd> 加速跑</span><span><kbd>SPACE</kbd> 跳跃</span><span><kbd>V</kbd> 人称</span></div><div className="bottom-tools"><button className="sprint-button" aria-pressed={state.sprinting} title="按住 Shift 加速；Q 或点击切换持续跑步" onClick={() => engine.current?.toggleSprint()}><Footprints size={14} /><span>{state.sprinting ? '跑步 · 开' : '加速跑步'}</span></button><button onClick={() => engine.current?.reset()} title="重置位置 R"><RotateCcw size={14} /><span>重置</span></button><button onClick={switchQuality}>画质 · {['流畅','均衡','精致'][quality]}</button><span className="fps"><i />{state.fps || '—'} FPS</span><button onClick={() => { engine.current?.pause(); setHelp(!help); }} aria-label="操作帮助">?</button></div></footer>
       <div className="touch-controls" style={state.mode === 'aerial' ? { display: 'none' } : undefined}>{[['KeyW',ArrowUp],['KeyA',ArrowLeft],['KeyS',ArrowDown],['KeyD',ArrowRight]].map(([code,Icon]) => { const Arrow = Icon as typeof ArrowUp; return <button key={code as string} aria-label={`${code} 移动`} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); engine.current?.touchMove(code as string,true); }} onPointerUp={() => engine.current?.touchMove(code as string,false)} onPointerCancel={() => engine.current?.touchMove(code as string,false)}><Arrow /></button>; })}</div>
     </>}
-    {help && <div className="help-panel"><button className="help-close" aria-label="关闭帮助" onClick={() => setHelp(false)}><X size={18} /></button><Compass size={24} /><h2>探索这座城</h2><p>点击「进入街区」后，使用 WASD 移动、鼠标转头。Shift 奔跑，空格跳跃。</p><p>Esc 暂停并释放鼠标。V 切换第一 / 第三人称，B 切换鸟瞰，M 收放地图，R 返回入口。也可以使用左下角地点快速前往街区。</p><p>若浏览器不允许锁定鼠标，可按住画面拖动观察。</p><a href="/credits.html" target="_blank" rel="noreferrer" style={{fontSize:12,textDecoration:"underline",color:"#bdd8d0"}}>素材鸣谢与许可</a></div>}
+    {help && <div className="help-panel"><button className="help-close" aria-label="关闭帮助" onClick={() => setHelp(false)}><X size={18} /></button><Compass size={24} /><h2>探索这座城</h2><p>点击「进入街区」后，使用 WASD 移动、鼠标转头。按住 Shift 加速跑，Q 或点击底部「加速跑步」切换持续跑步；空格跳跃。</p><p>Esc 暂停并释放鼠标。V 切换第一 / 第三人称，B 切换鸟瞰，M 收放地图，R 返回入口。也可以使用左下角地点快速前往街区。</p><p>若浏览器不允许锁定鼠标，可按住画面拖动观察。</p><a href="/credits.html" target="_blank" rel="noreferrer" style={{fontSize:12,textDecoration:"underline",color:"#bdd8d0"}}>素材鸣谢与许可</a></div>}
     {toast && <div className="toast" role="status"><LocateFixed size={16} />{toast}</div>}
   </main>;
 }

@@ -4,6 +4,7 @@ import type { Obstacle } from './movement';
 import { createVegetation } from './vegetation.ts';
 import { enrichCity } from './details.ts';
 import { buildArchitecture } from './architecture.ts';
+import { buildStreetLife } from './street-life.ts';
 
 export const TOWERS = [
   { x: 0, z: -16, h: 106, r: 12, rot: 0.2, name: '潮汐之塔' },
@@ -190,6 +191,7 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
   }
   for (const side of [-1, 1]) { block(steel, 0, 1.12, side * 147, 294, 0.09, 0.09); block(steel, side * 147, 1.12, 0, 0.09, 0.09, 294); }
   enrichCity({root,obstacles,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light});
+  buildStreetLife({root,obstacles,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light});
   // Batch fixed architectural details into one draw call per material.
   for (const [m, geometries] of batches) {
     const g = mergeGeometries(geometries, false);

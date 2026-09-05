@@ -12,12 +12,12 @@ export class Characters {
   citizens:Citizen[]=[];
   private disposed=false;
   private lastNpcUpdate=0;
-  private jumpClip?:THREE.AnimationClip;
+  private jumpClips:Record<string,THREE.AnimationClip>={};
   constructor(private scene:THREE.Scene,manager:THREE.LoadingManager,private obstacles:Obstacle[],onError:()=>void) {
-    new THREE.FileLoader(manager).setResponseType('json').load('/assets/jump-clip.json',data=>{
+    for(const [name,file] of [['jump','jump-clip.json'],['jumpRun','jump-run-clip.json']])new THREE.FileLoader(manager).setResponseType('json').load('/assets/'+file,data=>{
       if(this.disposed)return;
-      this.jumpClip=THREE.AnimationClip.parse(data as unknown as THREE.AnimationClipJSON);
-      if(this.player)this.player.actions.jump=this.player.mixer.clipAction(this.jumpClip);
+      this.jumpClips[name]=THREE.AnimationClip.parse(data as unknown as THREE.AnimationClipJSON);
+      if(this.player)this.player.actions[name]=this.player.mixer.clipAction(this.jumpClips[name]);
     },undefined,onError);
     PERSON_MODELS.forEach(modelSpec=>new GLTFLoader(manager).load('/assets/'+modelSpec.file,gltf=>{
       if(this.disposed){gltf.scene.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});return;}
@@ -39,7 +39,7 @@ export class Characters {
         });
         const mixer=new THREE.AnimationMixer(model),actions:Record<string,THREE.AnimationAction>={};
         for(const clip of gltf.animations)actions[clip.name.toLowerCase()]=mixer.clipAction(clip);
-        if(index<0&&this.jumpClip)actions.jump=mixer.clipAction(this.jumpClip);
+        if(index<0)for(const [name,clip] of Object.entries(this.jumpClips))actions[name]=mixer.clipAction(clip);
         const actor={root,mixer,actions,action:'',yaw:0};this.setAction(actor,'idle');mixer.update(.3+(Math.max(0,index)*.19)%2);return actor;
       };
       if(modelSpec.id==='player')this.player=build(-1);
@@ -55,21 +55,22 @@ export class Characters {
   private setAction(actor:Actor,name:string) {
     if(actor.action===name)return;
     const next=actor.actions[name]??actor.actions.idle;if(!next)return;
-    const old=actor.actions[actor.action],fade=name==='jump'?.075:.18;
+    const old=actor.actions[actor.action],fade=name.startsWith('jump')?.06:.18;
     next.reset().fadeIn(fade).play();old?.fadeOut(fade);actor.action=name;
   }
-  updatePlayer(position:THREE.Vector3,yaw:number,speed:number,visible:boolean,dt:number,jump:JumpFrame) {
+  updatePlayer(position:THREE.Vector3,yaw:number,speed:number,visible:boolean,dt:number,jump:JumpFrame,runningJump=false) {
     const actor=this.player;if(!actor)return;
     actor.root.position.copy(position);actor.root.visible=visible;
     const diff=THREE.MathUtils.euclideanModulo(yaw-actor.yaw+Math.PI,Math.PI*2)-Math.PI;
     actor.yaw+=diff*(1-Math.exp(-dt*12));actor.root.rotation.y=actor.yaw;
-    this.setAction(actor,jump.phase!=='grounded'?'jump':speed>3?'run':speed>.05?'walk':'idle');
-    if(actor.actions.jump&&jump.phase!=='grounded') {
+    const jumpName=runningJump?'jumpRun':'jump';
+    this.setAction(actor,jump.phase!=='grounded'?jumpName:speed>2.3?'run':speed>.05?'walk':'idle');
+    if(actor.actions[jumpName]&&jump.phase!=='grounded') {
       // Physics owns world height; a phase-synchronised bone clip owns crouch, arms and knees.
-      actor.actions.jump.paused=true;actor.actions.jump.time=Math.min(jump.time,actor.actions.jump.getClip().duration-.0001);
+      actor.actions[jumpName].paused=true;actor.actions[jumpName].time=Math.min(jump.time,actor.actions[jumpName].getClip().duration-.0001);
     }
-    if(actor.actions.walk)actor.actions.walk.timeScale=Math.max(.7,Math.min(1.5,speed/1.4));
-    if(actor.actions.run)actor.actions.run.timeScale=Math.max(.8,Math.min(1.5,speed/3.1));
+    if(actor.actions.walk)actor.actions.walk.timeScale=Math.max(.7,Math.min(1.7,speed/1.34));
+    if(actor.actions.run)actor.actions.run.timeScale=Math.max(.8,Math.min(1.75,speed/2.94));
     actor.mixer.update(dt);
   }
   update(time:number,player:THREE.Vector3,aerial:boolean) {

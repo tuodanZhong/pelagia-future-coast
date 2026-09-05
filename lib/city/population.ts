@@ -29,4 +29,13 @@ export const CITIZENS:CitizenSpec[]=[
   {model:'senior-female',x:-130,z:48,pace:.8,route:6,wardrobe:'#b2b8c4'},
   {model:'woman',x:32,z:-97,pace:1.20,route:7,offset:5},
   {model:'casual-female',x:-33.5,z:-99,pace:1.15,route:7,offset:3},
+  // Vendors face their counters; customers leave the promenade open.
+  {model:'casual-male',x:26.66,z:100.3,pace:0,route:0,yaw:-Math.PI/2,wardrobe:'#acb6b0'},
+  {model:'woman',x:24.32,z:100.55,pace:0,route:0,yaw:Math.PI/2,wardrobe:'#b9b9ba'},
+  {model:'casual-female',x:-26.66,z:100.3,pace:0,route:0,yaw:Math.PI/2},
+  {model:'senior-female',x:-24.32,z:100.05,pace:0,route:0,yaw:-Math.PI/2,wardrobe:'#c6bda7'},
+  {model:'senior-male',x:26.66,z:79.5,pace:0,route:0,yaw:-Math.PI/2,wardrobe:'#babda4'},
+  {model:'boy',x:24.32,z:79.75,pace:0,route:0,yaw:Math.PI/2},
+  {model:'woman',x:-26.66,z:79.5,pace:0,route:0,yaw:Math.PI/2,wardrobe:'#a0b3ae'},
+  {model:'casual-male',x:-24.32,z:79.25,pace:0,route:0,yaw:-Math.PI/2,wardrobe:'#adb8c0'},
 ];

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Obstacle } from './movement';
+import type { TrafficSignals } from './signals';
 
 export function createTrafficRoute(reverse=false) {
   const x=reverse?52.2:43.8,z=reverse?136.2:127.8,r=8;
@@ -80,7 +81,7 @@ export class Traffic {
     template.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose());}});
     this.writeMatrices();
   }
-  update(dt:number,player:THREE.Vector3) {
+  update(dt:number,player:THREE.Vector3,signals?:TrafficSignals,time=0) {
     for(const car of this.cars){
       if(car.parked){this.dummy.position.copy(car.parked);this.dummy.rotation.set(0,car.parked.x>0?0:Math.PI,0);}
       else {
@@ -90,6 +91,7 @@ export class Traffic {
         const dx=player.x-p.x,dz=player.z-p.z,ahead=dx*tangent.x+dz*tangent.z,lateral=Math.abs(dx*tangent.z-dz*tangent.x);
         const yieldToPlayer=ahead>0&&ahead<10&&lateral<2;
         let targetSpeed=yieldToPlayer?0:car.cruise;
+        if(signals)targetSpeed=Math.min(targetSpeed,signals.speedLimit(p,tangent,car.speed,time));
         for(const other of this.cars)if(other!==car&&!other.parked&&other.reverse===car.reverse){
           const gap=THREE.MathUtils.euclideanModulo((other.distance-car.distance)*sign,length);
           if(gap<14)targetSpeed=Math.min(targetSpeed,Math.max(0,(gap-6.2)*.6));

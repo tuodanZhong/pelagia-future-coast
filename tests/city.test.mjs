@@ -27,7 +27,7 @@ test('pool corners and world bounds block walking', () => {
 });
 const world = buildWorld(new THREE.Scene());
 test('spawn and every destination are clear of all obstacles', () => {
-  for (const p of [SPAWN,{x:-48,z:30},{x:138,z:105}]) assert.ok(isWalkable(p.x,p.z,world.obstacles),JSON.stringify(p));
+  for (const p of [SPAWN,{x:18.7,z:102.7},{x:-48,z:30},{x:138,z:105}]) assert.ok(isWalkable(p.x,p.z,world.obstacles),JSON.stringify(p));
 });
 test('continuous routes exist on both avenues and waterfront', () => {
   for (const x of [-48,48,138,-138]) for (let z=-125;z<=125;z++) assert.ok(isWalkable(x,z,world.obstacles),`${x},${z}`);
@@ -119,4 +119,60 @@ test('traffic brakes progressively and never reverses while yielding',async()=>{
   for(let i=0;i<60;i++){speed=brakingSpeed(speed,0,1/60);distance+=speed/60;assert.ok(speed>=0);}
   assert.equal(speed,0);assert.ok(distance<2.3);
   assert.ok(brakingSpeed(0,4.3,.1)>0&&brakingSpeed(0,4.3,.1)<.3);
+});
+test('sprinting accelerates smoothly, is faster than walking, and stops on release',async()=>{
+  const {locomotionSpeed,WALK_SPEED,SPRINT_SPEED}=await import('../lib/city/locomotion.ts');
+  let speed=0,distance=0;
+  for(let i=0;i<120;i++){
+    const next=locomotionSpeed(speed,true,true,1/60);
+    assert.ok(next>=speed&&next-speed<=8/60+1e-9);speed=next;distance+=speed/60;
+  }
+  assert.equal(speed,SPRINT_SPEED);assert.ok(distance>WALK_SPEED*2*2);
+  for(let i=0;i<60;i++)speed=locomotionSpeed(speed,true,false,1/60);
+  assert.equal(speed,WALK_SPEED);assert.equal(locomotionSpeed(speed,false,true,1/60),0);
+});
+test('traffic signals have exclusive phases, clearance intervals and correct approach coverage',async()=>{
+  const {phaseAt,SIGNAL_CYCLE_SECONDS,SIGNAL_APPROACHES,TrafficSignals}=await import('../lib/city/signals.ts');
+  assert.equal(SIGNAL_APPROACHES.length,28);
+  const stages=new Set();
+  for(let t=0;t<SIGNAL_CYCLE_SECONDS;t+=.1){
+    const phase=phaseAt(t);stages.add(phase.stage);
+    assert.ok(!(phase.ns!=='red'&&phase.ew!=='red'));
+    if(phase.pedestrianNS)assert.equal(phase.ew,'red');
+    if(phase.pedestrianEW)assert.equal(phase.ns,'red');
+  }
+  assert.equal(stages.size,6);assert.equal(phaseAt(SIGNAL_CYCLE_SECONDS).stage,phaseAt(0).stage);
+  const scene=new THREE.Scene(),fixed=[...world.obstacles],signals=new TrafficSignals(scene,fixed);
+  assert.ok(signals.root.children.length<=8);
+  for(const x of [-48,48,138,-138])for(let z=-125;z<=125;z++)assert.ok(isWalkable(x,z,fixed),`signal pole blocks ${x},${z}`);
+  const {CITIZENS}=await import('../lib/city/population.ts');
+  for(const p of CITIZENS)assert.ok(isWalkable(p.x,p.z,fixed,.3),`signal overlaps citizen ${p.x},${p.z}`);
+  signals.update(SIGNAL_CYCLE_SECONDS/2);signals.dispose();assert.equal(fixed.length,world.obstacles.length);
+});
+test('cars stop before a red signal and accelerate again on green',async()=>{
+  const {speedLimit,phaseAt,SIGNAL_CYCLE_SECONDS,STOP_LINE_OFFSET,VEHICLE_STOP_MARGIN}=await import('../lib/city/signals.ts');
+  const {brakingSpeed}=await import('../lib/city/traffic.ts');
+  const redTime=Array.from({length:SIGNAL_CYCLE_SECONDS},(_,i)=>i).find(t=>phaseAt(t).ew==='green');
+  assert.notEqual(redTime,undefined);
+  let z=10,speed=4.3;const x=43.8,heading={x:0,z:1};
+  for(let i=0;i<600;i++){
+    speed=brakingSpeed(speed,Math.min(4.3,speedLimit({x,z},heading,speed,redTime)),1/60);z+=speed/60;
+  }
+  const stop=48-STOP_LINE_OFFSET-VEHICLE_STOP_MARGIN;
+  assert.ok(z<stop&&z>stop-.8,`resting at ${z}, expected just before ${stop}`);assert.ok(speed<.01);
+  speed=brakingSpeed(speed,Math.min(4.3,speedLimit({x,z},heading,speed,0)),.1);assert.ok(speed>0);
+  assert.equal(speedLimit({x,z:48},heading,4.3,redTime),Infinity,'entered vehicles clear the junction');
+});
+test('running jump has a distinct, synchronised pose and the market is accessible',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const {JUMP_DURATION}=await import('../lib/city/jump.ts');
+  const {STREET_LIFE_VENUES}=await import('../lib/city/street-life.ts');
+  const standing=JSON.parse(await readFile(new URL('../public/assets/jump-clip.json',import.meta.url),'utf8'));
+  const running=JSON.parse(await readFile(new URL('../public/assets/jump-run-clip.json',import.meta.url),'utf8'));
+  assert.equal(running.name,'JumpRun');assert.ok(Math.abs(running.duration-JUMP_DURATION)<1e-6);
+  const leg='Bip01_L_Thigh.quaternion';
+  assert.notDeepEqual(standing.tracks.find(t=>t.name===leg)?.values,running.tracks.find(t=>t.name===leg)?.values);
+  assert.equal(STREET_LIFE_VENUES.filter(v=>v.type==='stall').length,4);
+  assert.equal(STREET_LIFE_VENUES.filter(v=>v.type==='shop').length,3);
+  for(let z=103;z<=116;z+=.25)assert.ok(isWalkable(18.2,z,world.obstacles),`market access ${z}`);
 });

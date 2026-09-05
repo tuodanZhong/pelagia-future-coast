@@ -10,11 +10,13 @@ import { buildWorld } from './world';
 import { Characters } from './characters';
 import { JumpController } from './jump';
 import { Traffic } from './traffic';
+import { locomotionSpeed } from './locomotion';
+import { TrafficSignals } from './signals';
 import { followOffset, resolveFollowCamera } from './camera';
 import { EYE_HEIGHT, SPAWN, moveWithCollisions, movementVector, groundHeight } from './movement';
 
 export type ViewMode = 'first' | 'third' | 'aerial';
-export type CityState = { ready: boolean; locked: boolean; active: boolean; mode: ViewMode; x: number; z: number; yaw: number; fps: number; calls: number; triangles: number; zone: string; fallback: boolean };
+export type CityState = { ready: boolean; locked: boolean; active: boolean; mode: ViewMode; x: number; z: number; yaw: number; fps: number; calls: number; triangles: number; zone: string; fallback: boolean; sprinting:boolean };
 export class CityEngine {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
@@ -30,8 +32,12 @@ export class CityEngine {
   private streetMode: ViewMode = 'third';
   private characters: Characters;
   private traffic: Traffic;
+  private signals: TrafficSignals;
   private characterYaw = SPAWN.yaw + Math.PI;
   private playerSpeed = 0;
+  private moveSpeed = 0;
+  private sprintToggled = false;
+  private runningJump = false;
   private cameraTarget = new THREE.Vector3();
   private reflection?: THREE.WebGLRenderTarget;
   keys = new Set<string>();
@@ -92,6 +98,7 @@ export class CityEngine {
     const assetManager=new THREE.LoadingManager();
     assetManager.onLoad=()=>{if(!this.dead){this.assetsReady=true;this.emit();}};
     this.world = buildWorld(this.scene,assetManager);
+    this.signals = new TrafficSignals(this.scene,this.world.obstacles);
     this.characters = new Characters(this.scene,assetManager,this.world.obstacles,()=>this.notice('人物资源加载失败，请刷新重试。'));
     this.traffic = new Traffic(this.scene,assetManager,this.world.obstacles,()=>this.notice('车辆资源加载失败，请刷新重试。'));
     const target = new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,samples:4});
@@ -163,9 +170,13 @@ export class CityEngine {
     if (e.code === 'KeyB' && !e.repeat) { this.setMode(this.mode === 'aerial' ? this.streetMode : 'aerial'); return; }
     if (e.code === 'KeyR' && !e.repeat) { this.reset(); return; }
     if (!this.active || this.mode === 'aerial') return;
+    if(e.code==='KeyQ'&&!e.repeat){e.preventDefault();this.toggleSprint();return;}
     if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','ShiftLeft','ShiftRight'].includes(e.code)) {
       e.preventDefault(); this.keys.add(e.code); if (!e.repeat) this.tappedKeys.add(e.code);
-      if(e.code==='Space'&&!e.repeat)this.jump.request();
+      if(e.code==='Space'&&!e.repeat&&this.jump.request()){
+        const moving=['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].some(key=>this.keys.has(key));
+        this.runningJump=this.playerSpeed>.8||(moving&&(this.sprintToggled||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight')));
+      }
     }
   };
   private onMouseMove = (e: MouseEvent) => { if (this.locked && this.mode !== 'aerial') this.look(e.movementX, e.movementY); };
@@ -207,7 +218,7 @@ export class CityEngine {
   reset() { this.teleport(SPAWN.x,SPAWN.z,SPAWN.yaw,this.mode==='first'?SPAWN.pitch:-.12);this.notice('已回到滨海广场入口'); }
   teleport(x:number,z:number,yaw:number,pitch=.14) {
     this.pause();if(this.mode==='aerial')this.mode=this.streetMode;this.orbit.enabled=false;this.yaw=yaw;
-    this.pitch=this.mode==='third'?-.12:pitch;this.walkPosition.set(x,EYE_HEIGHT,z);this.jump.reset();
+    this.pitch=this.mode==='third'?-.12:pitch;this.walkPosition.set(x,EYE_HEIGHT,z);this.jump.reset();this.moveSpeed=0;
     this.characterYaw=yaw+Math.PI;this.applyLook();this.emit();
   }
   setQuality(quality: number) {
@@ -217,10 +228,11 @@ export class CityEngine {
     this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; this.renderer.shadowMap.needsUpdate = true; this.resize();
   }
   touchMove(code: string, down: boolean) { if (down) { if (this.mode === 'aerial') this.setMode(this.streetMode); this.active = true; this.fallback = true; this.keys.add(code); } else this.keys.delete(code); this.emit(); }
-  private zone() { const { x, z } = this.walkPosition; if (Math.abs(x) > 132 || Math.abs(z) > 130) return '环岛滨水步道'; if (z > 52 && Math.abs(x) < 35) return '滨海广场'; if (Math.abs(x) < 33 && z < 40 && z > -55) return '潮汐之塔'; if (Math.abs(Math.abs(x) - 48) < 16) return '棕榈大道'; return '蓝湾街区'; }
+  toggleSprint(){this.sprintToggled=!this.sprintToggled;if(this.active)this.renderer.domElement.focus();this.emit();}
+  private zone() { const { x, z } = this.walkPosition; if (Math.abs(x) > 132 || Math.abs(z) > 130) return '环岛滨水步道'; if (z>70&&z<108&&Math.abs(x)>18&&Math.abs(x)<30) return '海风市集'; if (z > 52 && Math.abs(x) < 35) return '滨海广场'; if (Math.abs(x) < 33 && z < 40 && z > -55) return '潮汐之塔'; if (Math.abs(Math.abs(x) - 48) < 16) return '棕榈大道'; return '蓝湾街区'; }
   private emit(fps = 0) {
     this.report({ ready: this.assetsReady, locked: this.locked, active: this.active, mode: this.mode, x: this.walkPosition.x, z: this.walkPosition.z, yaw: this.yaw, fps,
-      calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, zone: this.mode === 'aerial' ? '全城鸟瞰' : this.zone(), fallback: this.fallback });
+      calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, zone: this.mode === 'aerial' ? '全城鸟瞰' : this.zone(), fallback: this.fallback, sprinting:this.sprintToggled||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight') });
   }
   private tick = (now: number) => {
     if (this.dead) return;
@@ -228,25 +240,27 @@ export class CityEngine {
     const dt = Math.min(this.prev ? (now - this.prev) / 1000 : 0.016, 0.05); this.prev = now;
     if (document.hidden) return;
     this.elapsed += dt; this.frames++;
-    this.traffic.update(dt,this.walkPosition);
+    this.signals.update(this.elapsed);
+    this.traffic.update(dt,this.walkPosition,this.signals,this.elapsed);
     this.playerSpeed=0;
     if (this.mode !== 'aerial' && this.active) {
       const held = (key: string) => this.keys.has(key) || this.tappedKeys.has(key);
       const forward = Number(held('KeyW') || held('ArrowUp')) - Number(held('KeyS') || held('ArrowDown'));
       const right = Number(held('KeyD') || held('ArrowRight')) - Number(held('KeyA') || held('ArrowLeft'));
+      const sprint=this.sprintToggled||held('ShiftLeft')||held('ShiftRight');
       this.tappedKeys.clear();
-      const speed = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 5.4 : 1.8;
-      const { dx, dz } = movementVector(forward, right, this.yaw, speed, dt);
+      this.moveSpeed=locomotionSpeed(this.moveSpeed,forward!==0||right!==0,sprint,dt);
+      const { dx, dz } = movementVector(forward, right, this.yaw, this.moveSpeed, dt);
       const p = moveWithCollisions(this.walkPosition.x, this.walkPosition.z, dx, dz, this.world.obstacles);
       this.playerSpeed=Math.hypot(p.x-this.walkPosition.x,p.z-this.walkPosition.z)/dt;
       if(this.playerSpeed>.05)this.characterYaw=Math.atan2(p.x-this.walkPosition.x,p.z-this.walkPosition.z);
       this.walkPosition.x=p.x;this.walkPosition.z=p.z;
 
-    } else if (this.mode === 'aerial') this.orbit.update();
+    } else {this.moveSpeed=0;if (this.mode === 'aerial') this.orbit.update();}
     const jumpFrame=this.jump.update(dt);this.walkPosition.y=EYE_HEIGHT+jumpFrame.height;
     if(this.mode==='first')this.applyLook();else if(this.mode==='third')this.updateFollow(dt);
     const feet=new THREE.Vector3(this.walkPosition.x,this.walkPosition.y-EYE_HEIGHT+groundHeight(this.walkPosition.x,this.walkPosition.z),this.walkPosition.z);
-    this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,jumpFrame);
+    this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,jumpFrame,this.runningJump);
     this.characters.update(this.elapsed,this.walkPosition,this.mode==='aerial');
     this.world.update(this.elapsed);
     if(this.elapsed-this.lastShadow>.12){this.renderer.shadowMap.needsUpdate=true;this.lastShadow=this.elapsed;}
@@ -258,6 +272,7 @@ export class CityEngine {
   };
   dispose() {
     this.dead = true; cancelAnimationFrame(this.frame); this.pause(); this.disposers.forEach(fn => fn()); this.resizeObserver.disconnect(); this.orbit.dispose();
+    this.signals.dispose();
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
     this.scene.traverse(obj => { if (obj instanceof THREE.InstancedMesh) obj.dispose(); if (obj instanceof THREE.Mesh) { geometries.add(obj.geometry); (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach(m => materials.add(m)); } });
     geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); this.environment.dispose();this.reflection?.dispose();this.backgroundTexture?.dispose();this.characters.dispose();this.traffic.dispose();

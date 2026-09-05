@@ -15,7 +15,6 @@ export function enrichCity(k: DetailKit) {
   const stone=new THREE.MeshStandardMaterial({color:'#bcb8a9',roughness:.85});
   const cream=new THREE.MeshStandardMaterial({color:'#d9d4bb',roughness:.8});
   const rubber=new THREE.MeshStandardMaterial({color:'#252d2e',roughness:.94});
-  const red=new THREE.MeshStandardMaterial({color:'#a14d39',roughness:.75});
   const glow=new THREE.MeshStandardMaterial({color:'#edc893',emissive:'#dda365',emissiveIntensity:.5});
   const cone=new THREE.ConeGeometry(1,1,12), sphere=new THREE.SphereGeometry(1,8,6), cyl=new THREE.CylinderGeometry(1,1,1,12), torus=new THREE.TorusGeometry(1,.09,5,24);
   function solidCircle(x:number,z:number,r:number){obstacles.push({x,z,rx:r,rz:r});}
@@ -54,8 +53,6 @@ export function enrichCity(k: DetailKit) {
     for(let i=-4;i<5;i++)block(steel,x+6+i*.08,.095,z+4,.025,.01,.7);
     for(const side of [-1,1]) {
       const px=x+side*13,pz=z+side*12;
-      add(cyl,dark,px,2.7,pz,.09,5.4,.09);block(dark,px,4.8,pz,.47,1.15,.32);
-      for(let i=0;i<3;i++)add(sphere,i===0?red:i===2?grass:cream,px,5.13-i*.32,pz+.18,.13,.13,.04);
       block(stone,px,.08,pz+1,1.8,.04,1.2);
       for(let j=0;j<9;j++)for(let n=0;n<5;n++)disk(cream,px-.7+j*.17,.11,pz+.55+n*.18,.038,.025);
     }
