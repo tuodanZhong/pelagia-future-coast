@@ -18,7 +18,7 @@ export function createVegetation(root: THREE.Group) {
   leafGeo.setIndex([0,1,2,0,2,3,1,4,2,2,4,3]);leafGeo.computeVertexNormals();
   function addLeaf(p:THREE.Vector3,size:number) {
     d.position.copy(p);d.rotation.set(random()*Math.PI,random()*6.28,random()*6.28);d.scale.set(size,size,size);d.updateMatrix();leaves.push(d.matrix.clone());
-    const c=new THREE.Color().setHSL(.22+random()*.07,.32+random()*.25,.20+random()*.17);leafColors.push(c);
+    const c=new THREE.Color().setHSL(.22+random()*.07,.40+random()*.22,.20+random()*.15,THREE.SRGBColorSpace);leafColors.push(c);
   }
   const frondParts:THREE.BufferGeometry[]=[];
   const curve=new THREE.CatmullRomCurve3(Array.from({length:13},(_,i)=>{const t=i/12;return new THREE.Vector3(t*4.2,Math.sin(t*Math.PI)*.55-t*t*1.3,0)}));

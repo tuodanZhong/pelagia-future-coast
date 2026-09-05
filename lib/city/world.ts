@@ -3,17 +3,18 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Obstacle } from './movement';
 import { createVegetation } from './vegetation.ts';
 import { enrichCity } from './details.ts';
+import { buildArchitecture } from './architecture.ts';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 export const TOWERS = [
-  { x: 0, z: -16, h: 128, r: 12, rot: 0.2, name: '潮汐之塔' },
-  { x: -98, z: 75, h: 80, r: 11.5, rot: -0.8, name: '白帆公馆' },
-  { x: 98, z: 74, h: 95, r: 12, rot: 1.1, name: '海镜中心' },
-  { x: -96, z: -88, h: 103, r: 10, rot: -0.4, name: '云庭' },
-  { x: 83, z: -90, h: 118, r: 11, rot: 0.8, name: '远航中心' },
-  { x: 99, z: -12, h: 82, r: 9, rot: 2.4, name: '蓝湾花园' },
-  { x: -100, z: -12, h: 53, r: 9, rot: 0.4, name: '海岸研究所' },
-  { x: -4, z: -106, h: 67, r: 8, rot: 2.0, name: '空中花园' },
+  { x: 0, z: -16, h: 106, r: 12, rot: 0.2, name: '潮汐之塔' },
+  { x: -98, z: 75, h: 61, r: 11.5, rot: -0.8, name: '白帆公馆' },
+  { x: 98, z: 74, h: 79, r: 12, rot: 1.1, name: '海镜中心' },
+  { x: -96, z: -88, h: 75, r: 10, rot: -0.4, name: '云庭' },
+  { x: 83, z: -90, h: 94, r: 11, rot: 0.8, name: '远航中心' },
+  { x: 99, z: -12, h: 57, r: 9, rot: 2.4, name: '蓝湾花园' },
+  { x: -100, z: -12, h: 46, r: 9, rot: 0.4, name: '海岸研究所' },
+  { x: -4, z: -106, h: 58, r: 8, rot: 2.0, name: '空中花园' },
 ];
 function material(color: THREE.ColorRepresentation, roughness = 0.7, metalness = 0) {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
@@ -22,15 +23,20 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
   const root = new THREE.Group(); scene.add(root);
   const obstacles: Obstacle[] = [];
   const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
-  const white = material('#e6e5de', 0.35, 0.08), pavement = material('#dadbd8'), pale = material('#e1dfd4');
+  const white = material('#d6d4cd', 0.78, 0.0), pavement = material('#dadbd8'), pale = material('#e1dfd4');
   const asphalt = material('#b6b6b6', 0.96), lines = material('#ececd9'), yellow = material('#d1c29a');
   const grass = material('#607d43'), leaf = material('#497342'), leafLight = material('#66844a');
-  const bark = material('#7a7059'), steel = material('#92aab5', 0.35, 0.6), dark = material('#254151', 0.42, 0.5);
-  const glass = new THREE.MeshPhysicalMaterial({ color: '#365d77', roughness: 0.17, metalness: 0.56, envMapIntensity: 1.2, clearcoat: 1, clearcoatRoughness: .12, ior: 1.5 });
-  const pool = new THREE.MeshStandardMaterial({ color: '#50aec1', metalness: 0.35, roughness: 0.17 });
+  const bark = material('#7a7059'), steel = material('#858986', 0.4, 0.7), dark = material('#353e40', 0.6, 0.15);
+  const glass = new THREE.MeshPhysicalMaterial({ color: '#526369', roughness: 0.15, metalness: 0.12, envMapIntensity: 1.15, clearcoat: .25, clearcoatRoughness: .18, ior: 1.5 });
+  const pool = new THREE.MeshStandardMaterial({ color: '#557c78', metalness: 0.12, roughness: 0.13 });
   const light = new THREE.MeshStandardMaterial({ color: '#deffff', emissive: '#7dc4e3', emissiveIntensity: 0.65 });
   const railGlass = new THREE.MeshPhysicalMaterial({color:'#bed5d5',metalness:.1,roughness:.12,transparent:true,opacity:.24,side:THREE.DoubleSide,depthWrite:false});
   const interior = material('#3c4443',.86), warm = new THREE.MeshStandardMaterial({color:'#dacdb2',emissive:'#e4c295',emissiveIntensity:.22,roughness:.8});
+  for(const m of [pavement,asphalt]) {
+    m.roughness=1;
+    m.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\nroughnessFactor=max(roughnessFactor,.78);');};
+    m.customProgramCacheKey=()=> 'dry-paving-v1';
+  }
   if (typeof document !== 'undefined') {
     const loader = new THREE.TextureLoader(loadingManager);
     for(const [m,name,normal] of [[pavement,'concrete_pavement',.24],[asphalt,'asphalt_02',.19]] as const) {
@@ -45,9 +51,9 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
     shader.vertexShader='varying vec3 vCityPosition;\n'+shader.vertexShader;
     shader.vertexShader=shader.vertexShader.replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nvCityPosition=(modelMatrix*vec4(transformed,1.)).xyz;');
     shader.fragmentShader='varying vec3 vCityPosition;\n'+shader.fragmentShader;
-    shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\nfloat pane=fract(sin(dot(floor(vCityPosition*vec3(.34,.29,.34)),vec3(12.9898,78.233,37.71)))*43758.5453);diffuseColor.rgb*=.85+.19*pane;');
+    shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\nfloat pane=fract(sin(dot(floor(vCityPosition*vec3(.60,.285,.60)),vec3(12.9898,78.233,37.71)))*43758.5453);diffuseColor.rgb*=.87+.13*pane;');
   };
-  glass.customProgramCacheKey=()=> 'city-glazing-v2';
+  glass.customProgramCacheKey=()=> 'city-glazing-v3';
   const dummy = new THREE.Object3D();
   function add(g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, ry = 0) {
     dummy.position.set(x, y, z); dummy.rotation.set(0, ry, 0); dummy.scale.set(sx, sy, sz); dummy.updateMatrix();
@@ -110,85 +116,8 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
       palm(side * 63, t, 6.5);
     }
   }
-  // Glass towers: a sloping oval crown inside two continuous twisting porcelain sails.
-  TOWERS.forEach((tower, index) => {
-    const { x, z, h, r, rot } = tower;
-    const podiumR = r + 12, podiumY = 12.1;
-    obstacles.push({x,z,rx:podiumR+1.0,rz:podiumR*.83+1.0});
-    // Three inhabited levels with setbacks, shadow gaps, columns, and roof gardens.
-    disk(white,x,.35,z,podiumR+1,.55,.83);
-    for(let level=0;level<3;level++) {
-      const rr=podiumR-level*.85,yy=.75+level*3.8,shift=level*.55;
-      disk(interior,x+shift,yy+1.8,z-level*.3,rr-.4,3.5,.83);
-      disk(glass,x+shift,yy+1.8,z-level*.3,rr,3.45,.83);
-      disk(white,x+shift,yy+3.57,z-level*.3,rr+1.05,.35,.83);
-      ring(x+shift,yy+3.38,z-level*.3,rr+.4,.075,dark,.83);
-      for(let k=0;k<44;k++) {
-        const a=k/44*Math.PI*2,px=x+shift+Math.cos(a)*(rr+.04),pz=z-level*.3+Math.sin(a)*(rr+.04)*.83;
-        block(steel,px,yy+1.8,pz,.095,3.42,.095);
-        if(k%4===0)block(white,px,yy+1.8,pz,.27,3.5,.27);
-        if(k%3===1){block(warm,x+shift+Math.cos(a)*(rr-.18),yy+3.05,z-level*.3+Math.sin(a)*(rr-.18)*.83,.45,.10,.45);}
-      }
-      ring(x+shift,yy+3.72,z-level*.3,rr+.5,.07,steel,.83);
-    }
-    disk(grass,x+1.1,12.18,z-.6,podiumR-2,.15,.83);
-    for(let k=0;k<14;k++){const a=k*Math.PI/7;shrub(x+Math.cos(a)*(podiumR-3),z+Math.sin(a)*(podiumR-3)*.83,1,12.25);if(k%2===0)palm(x+Math.cos(a)*(podiumR-3),z+Math.sin(a)*(podiumR-3)*.83,4.4,12.25);}
-    // Visible recess, portal and door hardware give the street facade human scale.
-    const front=z+podiumR*.83;
-    block(interior,x,2.15,front+.12,6.4,4,.35);block(white,x,4.15,front+1.3,8.5,.28,4.6);
-    block(glass,x,1.9,front+.35,4.6,3.6,.06);
-    for(const dx of [-3.3,-2.25,0,2.25,3.3])block(steel,x+dx,2,front+.44,.09,3.8,.09);
-    for(const dx of [-.2,.2])block(steel,x+dx,1.65,front+.53,.045,.62,.06);
-    for(const dx of [-3.2,3.2])block(white,x+dx,1.95,front+2.1,.17,3.9,.17);
-    disk(pale,x,.20,front+2,4.5,.12,.45);
-    function point(t: number, a: number, shell = 0) {
-      const ang = a + rot + t * 0.38;
-      const taper = 0.84 + Math.sin(t * Math.PI) * (0.19 + index % 3 * .035) - t * 0.08;
-      const radius = r * taper + shell;
-      const crown = h + Math.cos(a) * r * (index % 3 === 0 ? 2.2 : 1.6);
-      return new THREE.Vector3(x + Math.cos(ang) * radius + Math.sin(t * Math.PI) * r * 0.11, podiumY + t * (crown - podiumY), z + Math.sin(ang) * radius * 0.73);
-    }
-    function surface(shell: boolean, side = 0) {
-      const positions: number[] = [], indices: number[] = [];
-      const rows = 56, cols = shell ? 14 : 64;
-      for (let j = 0; j <= rows; j++) {
-        const t = j / rows;
-        for (let i = 0; i <= cols; i++) {
-          let a = i / cols * Math.PI * 2;
-          if (shell) {
-            const width = 0.48 + 0.76 * Math.pow(Math.abs(Math.cos(t * Math.PI)), 1.6);
-            a = side * Math.PI + t * (1.5 + (index % 2) * .18) + (i / cols - 0.5) * width;
-          }
-          const p = point(t, a, shell ? 0.32 : 0); positions.push(p.x, p.y, p.z);
-          
-          if (j < rows && i < cols) { const n = j * (cols + 1) + i; indices.push(n, n + cols + 1, n + 1, n + 1, n + cols + 1, n + cols + 2); }
-        }
-      }
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); g.setIndex(indices); g.computeVertexNormals();
-      add(g, shell ? white : glass); g.dispose();
-      if(shell) {
-        // Closed return faces give the porcelain sail a readable 40 cm edge.
-        for(const edge of [-.5,.5]){
-          const edgePoints=[];
-          for(let j=0;j<=rows;j++){const t=j/rows,width=.48+.76*Math.pow(Math.abs(Math.cos(t*Math.PI)),1.6),a=side*Math.PI+t*(1.5+(index%2)*.18)+edge*width;edgePoints.push(point(t,a,.34));}
-          pipe(edgePoints,.21,white,64);
-        }
-        for(let j=5;j<rows;j+=4){const t=j/rows,width=.48+.76*Math.pow(Math.abs(Math.cos(t*Math.PI)),1.6);const seam=Array.from({length:13},(_,i)=>point(t,side*Math.PI+t*(1.5+(index%2)*.18)+(i/12-.5)*width,.335));pipe(seam,.013,steel,12);}
-      }
-    }
-    surface(false); surface(true); surface(true, 1);
-    // Fine horizontal floors and vertical mullions anchor the architecture's scale.
-    for (let y = 0.02; y < 0.99; y += 3.25 / h) {
-      const pts = Array.from({ length: 65 }, (_, k) => point(y, k * Math.PI / 32, 0.055)); pipe(pts, 0.055, steel, 64);
-    }
-    for (let k = 0; k < 24; k++) {
-      const pts = Array.from({ length: 25 }, (_, j) => point(j / 24, k * Math.PI / 12, 0.075)); pipe(pts, k % 3 === 0 ? 0.10 : 0.047, steel, 30);
-    }
-    const crownPoints = Array.from({ length: 65 }, (_, k) => point(1, k * Math.PI / 32, 0.1)); pipe(crownPoints, 0.34, white, 64);
-    pipe(Array.from({length:65},(_,k)=>point(.982,k*Math.PI/32,-.5)),.16,steel,64);
-    const gardenHeight = h - r * 1.6;
-    disk(grass, x, gardenHeight, z, r * 0.56, 0.25, 0.73);
-    for (let k = 0; k < 4; k++) palm(x + Math.sin(k * 2) * r * 0.36, z + Math.cos(k * 2) * r * 0.3, 3.4, gardenHeight);
+  buildArchitecture({root,obstacles,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light},TOWERS);
+  TOWERS.forEach(({x,z},index)=>{
     // Rectangular garden courts and reflecting pools near each tower.
     const gx = x + (x < 0 ? -24 : 24);
     block(white, gx, 0.32, z + 10, 8, 0.5, 26);
@@ -237,10 +166,11 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
     const mesh = new THREE.Mesh(new THREE.TorusGeometry(5, 0.13, 8, 80), i === 1 ? white : steel); mesh.rotation.set(i * 1.1, i * 0.8, 0.5); sculpture.add(mesh);
   }
   const globe = new THREE.Mesh(new THREE.IcosahedronGeometry(3.8, 2), new THREE.MeshStandardMaterial({ color: '#72bfd5', roughness: 0.2, metalness: 0.6, wireframe: true })); sculpture.add(globe);
+  const spray=new THREE.MeshPhysicalMaterial({color:'#d9e5df',roughness:.2,transparent:true,opacity:.5,depthWrite:false});
   for (let k = 0; k < 20; k++) {
     const a = k * Math.PI / 10, x = Math.cos(a) * 12, z = fz + Math.sin(a) * 12;
     const p = Array.from({ length: 12 }, (_, j) => { const t = j / 11; return new THREE.Vector3(x * (1 - t * 0.22), 0.55 + Math.sin(t * Math.PI) * 3, fz + (z - fz) * (1 - t * 0.22)); });
-    pipe(p, 0.045, light, 12);
+    pipe(p, 0.033, spray, 12);
   }
   for (const x of [-26, 26]) for (const z of [69, 90, 111]) {
     obstacles.push({ x, z, rx: 2.7, rz: 6.5, shape: 'box' });
@@ -291,27 +221,30 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
     geometries.forEach(g => g.dispose());
   }
   vegetation.flush();
-  // Animated, world-space ocean shading avoids large texture downloads.
+  // Physically lit ocean: world-space wave normals reflect the same HDR sky and sun.
   const waterUniforms = { uTime: { value: 0 } };
-  const water = new THREE.ShaderMaterial({ uniforms: waterUniforms, vertexShader: `varying vec3 vWorld; void main(){ vec4 p=modelMatrix*vec4(position,1.); vWorld=p.xyz; gl_Position=projectionMatrix*viewMatrix*p; }`, fragmentShader: `
-    varying vec3 vWorld; uniform float uTime;
-    float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-    float noise(vec2 p){vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1)),f.x),f.y);}
-    void main(){
-      vec2 p=vWorld.xz; float t=uTime*.16;
-      float w=noise(p*vec2(.38,.72)+vec2(t,-t))*.55 + noise(p*.87-vec2(t*.7,t))*.3 + noise(p*1.8+vec2(t))* .15;
-      vec3 c=mix(vec3(.065,.23,.32),vec3(.15,.36,.44),w);
-      c+=pow(max(0.,(w-.48)*1.9),5.)*.17;
-      float d=length(cameraPosition.xz-p);
-      c=mix(c,vec3(.62,.69,.71),smoothstep(500.,9500.,d));
-      gl_FragColor=vec4(c,1.);
-      #include <tonemapping_fragment>
-      #include <colorspace_fragment>
-    }
-` });
+  const water = new THREE.MeshPhysicalMaterial({color:'#42615f',roughness:.18,metalness:.08,ior:1.333,envMapIntensity:1.15});
+  water.onBeforeCompile=shader=>{
+    shader.uniforms.uTime=waterUniforms.uTime;
+    shader.vertexShader='varying vec3 vWaterWorld;\n'+shader.vertexShader;
+    shader.vertexShader=shader.vertexShader.replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nvWaterWorld=(modelMatrix*vec4(transformed,1.)).xyz;');
+    shader.fragmentShader=`varying vec3 vWaterWorld; uniform float uTime;
+      float seaHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+      float seaNoise(vec2 p){vec2 a=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(seaHash(a),seaHash(a+vec2(1,0)),f.x),mix(seaHash(a+vec2(0,1)),seaHash(a+vec2(1)),f.x),f.y);}
+      float waves(vec2 p){return seaNoise(p*vec2(.38,.81)+vec2(uTime*.15,-uTime*.08))*.55+seaNoise(p*vec2(.91,1.65)-vec2(uTime*.13,uTime*.05))*.22;}
+    `+shader.fragmentShader;
+    shader.fragmentShader=shader.fragmentShader.replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
+      vec2 p=vWaterWorld.xz;
+      float fade=1.-smoothstep(80.,950.,distance(vWaterWorld,cameraPosition));
+      float nx=(waves(p+vec2(.16,0))-waves(p-vec2(.16,0)))*.9;
+      float nz=(waves(p+vec2(0,.16))-waves(p-vec2(0,.16)))*.9;
+      normal=normalize(mat3(viewMatrix)*normalize(vec3(nx*fade,1.,nz*fade)));
+    `);
+  };
+  water.customProgramCacheKey=()=> 'coastal-pbr-water-v1';
   const sea = new THREE.Mesh(new THREE.PlaneGeometry(30000, 30000), water); sea.rotation.x = -Math.PI / 2; sea.position.y = -2; root.add(sea);
   box.dispose(); cylinder.dispose(); sphere.dispose();
-  return { obstacles, root, update(time: number) {
+  return { obstacles, root, glass, update(time: number) {
     waterUniforms.uTime.value = time; sculpture.rotation.y = time * 0.065;
     cars.forEach(({ mesh, lane, offset, axis, direction }) => { const t = ((time * 5 * direction + offset + 10000) % 270) - 135; mesh.position.set(axis ? lane : t, 0.06, axis ? t : lane); mesh.rotation.y = axis ? (direction > 0 ? 0 : Math.PI) : (direction > 0 ? Math.PI / 2 : -Math.PI / 2); });
   } };

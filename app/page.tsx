@@ -1,10 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Compass, Footprints, Layers3, LocateFixed, Map, Maximize, Mouse, RotateCcw, Waves, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Compass, Eye, UserRound, Footprints, Layers3, LocateFixed, Map, Maximize, Mouse, RotateCcw, Waves, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { CityEngine, CityState } from '@/lib/city/engine';
 import { TOWERS } from '@/lib/city/world';
-const INITIAL: CityState = { ready: false, locked: false, active: false, mode: 'walk', x: 18, z: 116, yaw: 0.15, fps: 0, calls: 0, triangles: 0, zone: '滨海广场', fallback: false };
+const INITIAL: CityState = { ready: false, locked: false, active: false, mode: 'third', x: 18, z: 116, yaw: 0.15, fps: 0, calls: 0, triangles: 0, zone: '滨海广场', fallback: false };
 export default function CityPage() {
   const container = useRef<HTMLDivElement>(null), engine = useRef<CityEngine | null>(null);
   const [state, setState] = useState(INITIAL), [error, setError] = useState(''), [toast, setToast] = useState('');
@@ -33,7 +33,8 @@ export default function CityPage() {
       <div className="top-middle"><span className="live-dot" /> 开放世界 <span className="divider">/</span> 01 — 蓝湾</div>
       <nav className="top-actions" aria-label="视角与画面设置">
         <div className="view-switch">
-          <Button className={state.mode === 'walk' ? 'nav-button selected' : 'nav-button'} onClick={() => engine.current?.setMode('walk')} aria-pressed={state.mode === 'walk'} disabled={!state.ready}><Footprints />步行</Button>
+          <Button className={state.mode === 'first' ? 'nav-button selected' : 'nav-button'} onClick={() => engine.current?.setMode('first')} aria-pressed={state.mode === 'first'} disabled={!state.ready}><Eye />第一人称</Button>
+          <Button className={state.mode === 'third' ? 'nav-button selected' : 'nav-button'} onClick={() => engine.current?.setMode('third')} aria-pressed={state.mode === 'third'} disabled={!state.ready}><UserRound />第三人称</Button>
           <Button className={state.mode === 'aerial' ? 'nav-button selected' : 'nav-button'} onClick={() => engine.current?.setMode('aerial')} aria-pressed={state.mode === 'aerial'} disabled={!state.ready}><Layers3 />鸟瞰</Button>
         </div>
         <Button className="square-button" aria-label="切换全屏" title="全屏" onClick={fullscreen}><Maximize /></Button>
@@ -41,21 +42,21 @@ export default function CityPage() {
     </header>
     <div className="coordinate-line"><span>BLUE BAY DISTRICT</span><span>22° N &nbsp; 114° E</span></div>
     <div className="compass"><span>W</span><i /><span>N</span><b style={{ transform: `rotate(${-state.yaw * 180 / Math.PI}deg)` }}>⌃</b><span>E</span></div>
-    {state.active && state.mode === 'walk' && <div className="crosshair" aria-hidden="true" />}
+    {state.active && state.mode === 'first' && <div className="crosshair" aria-hidden="true" />}
     {!state.ready && <div className="loading-screen"><div className="loading-symbol"><Waves size={40} /></div><h1>{error ? '暂时无法进入' : '正在构建未来海岸'}</h1><p>{error || '连接街道、花园与海洋…'}</p>{error && <Button className="enter-button" onClick={() => window.location.reload()}>重新加载</Button>}<div className={error ? '' : 'loading-bar'} /></div>}
     {state.ready && <>
       <aside className="location-panel">
         <div className="eyebrow"><span className="location-number">01</span><span>THE WATERFRONT CITY</span></div>
         <h1>{state.zone}<span className="title-period">.</span></h1>
         <p>{state.mode === 'aerial' ? '海与城之间，发现新的视角。' : '循着海风，走进明日之城。'}</p>
-        <div className="location-detail"><span><span className="live-dot" /> 自由探索</span><span>晴朗 · 海风轻拂</span></div>
+        <div className="location-detail"><span><span className="live-dot" /> 自由探索</span><span>午后 · 海风轻拂</span></div>
         <div className="destination-links">
           <button onClick={() => engine.current?.teleport(18, 116, 0.15, 0.24)} title="前往滨海广场">广场 <ArrowRight size={12} /></button>
           <button onClick={() => engine.current?.teleport(-48, 30, -0.25, 0.2)} title="前往棕榈大道">大道 <ArrowRight size={12} /></button>
           <button onClick={() => engine.current?.teleport(138, 105, 0.8, 0.13)} title="前往滨水步道">滨水 <ArrowRight size={12} /></button>
         </div>
       </aside>
-      {!state.active && state.mode === 'walk' && <div className="entry-prompt"><Button className="enter-button" onClick={() => engine.current?.enter()}><Footprints size={18} />进入街区 <ArrowRight size={17} /></Button><span>点击进入 · WASD 移动 · 鼠标环顾</span></div>}
+      {!state.active && state.mode !== 'aerial' && <div className="entry-prompt"><Button className="enter-button" onClick={() => engine.current?.enter()}><Footprints size={18} />进入街区 <ArrowRight size={17} /></Button><span>WASD 移动 · V 切换第一 / 第三人称</span></div>}
       {state.mode === 'aerial' && <div className="aerial-hint"><Mouse size={16} /> 拖动旋转 · 滚轮缩放 <button onClick={() => engine.current?.enter()}>返回街区 <ArrowRight size={13} /></button></div>}
       {state.active && <div className="playing-hint">{state.fallback ? '按住画面拖动观察' : '鼠标环顾'}<span>ESC 释放鼠标</span></div>}
       <aside className={`map-panel ${mapOpen ? '' : 'map-collapsed'}`}>
@@ -69,14 +70,14 @@ export default function CityPage() {
           {TOWERS.map(t => <ellipse key={t.name} cx={(t.x+150)*.92+12} cy={(t.z+150)*.92+12} rx={(t.r+6)*.92} ry={(t.r+6)*.72} fill="#bfd0c8" opacity=".8" />)}
           <circle cx="150" cy="231" r="15" fill="none" stroke="#9fc7c9" strokeWidth="2" />
           <path d="M61 69 Q112 69 150 135 Q211 173 241 139 M145 52 Q200 30 226 64" stroke="#cce2d8" strokeWidth="3" fill="none" opacity=".5" />
-          {state.mode === 'walk' && <g transform={`translate(${(state.x+150)*.92+12} ${(state.z+150)*.92+12}) rotate(${-state.yaw*180/Math.PI})`}><circle r="12" fill="#81ddd0" opacity=".16" /><path d="M0 -8 L6 6 L0 3 L-6 6 Z" fill="#9fffe7" stroke="#193e3a" strokeWidth="1.2" /></g>}
+          {state.mode !== 'aerial' && <g transform={`translate(${(state.x+150)*.92+12} ${(state.z+150)*.92+12}) rotate(${-state.yaw*180/Math.PI})`}><circle r="12" fill="#81ddd0" opacity=".16" /><path d="M0 -8 L6 6 L0 3 L-6 6 Z" fill="#9fffe7" stroke="#193e3a" strokeWidth="1.2" /></g>}
           <text x="272" y="28" fill="#d0e5e2" fontSize="13">N</text>
-        </svg><div className="map-footer"><span><span className="map-dot" /> {state.mode === 'walk' ? '你的位置' : '蓝湾全境'}</span><span>0 ─── 100 m</span></div></>}
+        </svg><div className="map-footer"><span><span className="map-dot" /> {state.mode !== 'aerial' ? '你的位置' : '蓝湾全境'}</span><span>0 ─── 100 m</span></div></>}
       </aside>
-      <footer className="bottom-bar"><div className="keyboard-hints"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span><span><kbd>SHIFT</kbd> 奔跑</span><span><kbd>SPACE</kbd> 跳跃</span><span><kbd>V</kbd> 视角</span></div><div className="bottom-tools"><button onClick={() => engine.current?.reset()} title="重置位置 R"><RotateCcw size={14} /><span>重置</span></button><button onClick={switchQuality}>画质 · {['流畅','均衡','精致'][quality]}</button><span className="fps"><i />{state.fps || '—'} FPS</span><button onClick={() => { engine.current?.pause(); setHelp(!help); }} aria-label="操作帮助">?</button></div></footer>
+      <footer className="bottom-bar"><div className="keyboard-hints"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span><span><kbd>SHIFT</kbd> 奔跑</span><span><kbd>SPACE</kbd> 跳跃</span><span><kbd>V</kbd> 人称</span></div><div className="bottom-tools"><button onClick={() => engine.current?.reset()} title="重置位置 R"><RotateCcw size={14} /><span>重置</span></button><button onClick={switchQuality}>画质 · {['流畅','均衡','精致'][quality]}</button><span className="fps"><i />{state.fps || '—'} FPS</span><button onClick={() => { engine.current?.pause(); setHelp(!help); }} aria-label="操作帮助">?</button></div></footer>
       <div className="touch-controls" style={state.mode === 'aerial' ? { display: 'none' } : undefined}>{[['KeyW',ArrowUp],['KeyA',ArrowLeft],['KeyS',ArrowDown],['KeyD',ArrowRight]].map(([code,Icon]) => { const Arrow = Icon as typeof ArrowUp; return <button key={code as string} aria-label={`${code} 移动`} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); engine.current?.touchMove(code as string,true); }} onPointerUp={() => engine.current?.touchMove(code as string,false)} onPointerCancel={() => engine.current?.touchMove(code as string,false)}><Arrow /></button>; })}</div>
     </>}
-    {help && <div className="help-panel"><button className="help-close" aria-label="关闭帮助" onClick={() => setHelp(false)}><X size={18} /></button><Compass size={24} /><h2>探索这座城</h2><p>点击「进入街区」后，使用 WASD 移动、鼠标转头。Shift 奔跑，空格跳跃。</p><p>Esc 暂停并释放鼠标。V 切换鸟瞰，M 收放地图，R 返回入口。也可以使用左下角地点快速前往街区。</p><p>若浏览器不允许锁定鼠标，可按住画面拖动观察。</p></div>}
+    {help && <div className="help-panel"><button className="help-close" aria-label="关闭帮助" onClick={() => setHelp(false)}><X size={18} /></button><Compass size={24} /><h2>探索这座城</h2><p>点击「进入街区」后，使用 WASD 移动、鼠标转头。Shift 奔跑，空格跳跃。</p><p>Esc 暂停并释放鼠标。V 切换第一 / 第三人称，B 切换鸟瞰，M 收放地图，R 返回入口。也可以使用左下角地点快速前往街区。</p><p>若浏览器不允许锁定鼠标，可按住画面拖动观察。</p></div>}
     {toast && <div className="toast" role="status"><LocateFixed size={16} />{toast}</div>}
   </main>;
 }

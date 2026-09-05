@@ -54,3 +54,14 @@ Suggested integration: diffuse in sRGB, normal/roughness as non-color textures. 
 Suggested integration: diffuse in sRGB; OpenGL normal and roughness are non-color. Use `RepeatWrapping` at the real 3 m extent, normal scale 0.15–0.25, roughness multiplier 0.9–1.0, metalness 0. Set material color close to white initially and inspect in the new lighting before darkening, so the base map is not multiplied down to black.
 
 For both texture sets, reuse shared textures and materials and cap anisotropy at 8 (or the device maximum if lower). No displacement geometry is needed for these nearly flat surfaces.
+
+## Realistic characters
+Microsoft Rocketbox: Male_Adult_04 and Female_Adult_01, idle / walking / running animations.
+MIT License, copyright Microsoft Corporation. Full license included in LICENSE-Rocketbox.md.
+Source: https://github.com/microsoft/Microsoft-Rocketbox
+Converted to glTF with metre scale, embedded compressed textures and in-place skeletal animations.
+
+## Afternoon environment
+kloofendal_38d_partly_cloudy_puresky, Poly Haven, CC0.
+https://polyhaven.com/a/kloofendal_38d_partly_cloudy_puresky
+https://polyhaven.com/license

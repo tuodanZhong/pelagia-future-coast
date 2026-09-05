@@ -33,32 +33,6 @@ export function enrichCity(k: DetailKit) {
     for(const s of [-1,1]){const [px,pz]=pt(s*.87,0);block(dark,px,.3,pz,.09,.55,.6,angle);}
     obstacles.push({x,z,rx:angle===0?1.25:.45,rz:angle===0?.45:1.25,shape:'box'});
   }
-  const skinMaterial=new THREE.MeshStandardMaterial({color:'#bb9477',roughness:.9});
-  const hairMaterial=new THREE.MeshStandardMaterial({color:'#393833',roughness:.97});
-  const headGeometry=new THREE.SphereGeometry(1,10,8);
-  const hairGeometry=new THREE.SphereGeometry(1,10,6,0,Math.PI*2,0,Math.PI*.55);
-  function person(x:number,z:number,rotation:number,variant:number,s=1) {
-    const v=Math.abs(variant)%3,outfit=[dark,cream,red][v];
-    const p=(dx:number,y:number,dz:number)=>new THREE.Vector3(x+(Math.cos(rotation)*dx+Math.sin(rotation)*dz)*s,y*s,z+(-Math.sin(rotation)*dx+Math.cos(rotation)*dz)*s);
-    function ellipsoid(g:THREE.BufferGeometry,m:THREE.Material,dx:number,y:number,dz:number,sx:number,sy:number,sz:number){const q=p(dx,y,dz);add(g,m,q.x,q.y,q.z,sx*s,sy*s,sz*s,rotation);}
-    ellipsoid(headGeometry,skinMaterial,0,1.62,0,.10,.135,.105);
-    ellipsoid(hairGeometry,hairMaterial,0,1.645,-.008,.105,.124,.107);
-    ellipsoid(sphere,skinMaterial,0,1.60,.103,.024,.032,.024);
-    for(const side of [-1,1])ellipsoid(sphere,hairMaterial,side*.037,1.645,.094,.010,.009,.009);
-    ellipsoid(cyl,skinMaterial,0,1.46,0,.055,.12,.055);
-    ellipsoid(sphere,outfit,0,1.25,0,.18,.27,.105);
-    ellipsoid(sphere,outfit,0,1.05,0,.14,.13,.105);
-    for(const side of [-1,1]) {
-      const stride=(v===1?0.05:.14)*side;
-      const hip=p(side*.075,1.0,0),knee=p(side*.09,.59,stride),foot=p(side*.095,.14,-stride);
-      pipe([hip,knee,foot],.058*s,dark,4);
-      ellipsoid(sphere,rubber,side*.095,.085,-stride+.045,.065,.065,.14);
-      const shoulder=p(side*.15,1.41,0),elbow=p(side*.22,1.15,-stride),hand=p(side*.19,.95,stride);
-      pipe([shoulder,elbow,hand],.044*s,outfit,4);
-      ellipsoid(sphere,skinMaterial,side*.19,.92,stride,.040,.065,.035);
-    }
-    if(v===2){ellipsoid(sphere,wood,.24,.92,0,.10,.14,.07);pipe([p(.17,1.04,0),p(.26,1.17,0),p(.30,1.01,0)],.012,wood,5);}
-  }
   function cafe(x:number,z:number) {
     for(let j=0;j<3;j++) {
       const cx=x+(j-1)*5.5;
@@ -94,7 +68,7 @@ export function enrichCity(k: DetailKit) {
     block(glass,x+1.65,1.65,z,.05,2.6,6.8);
     bench(x,z,Math.PI/2);label('BLUE BAY  /  01',x,2.78,z+4.02,3.6);
     obstacles.push({x:x+1.65,z,rx:.2,rz:3.8,shape:'box'});
-    person(x-.8,z+2,0,1);person(x-.7,z-2,.4,0,.95);
+
   }
   // Architectural pavilions create a denser street wall beneath the towers.
   for(const [x,z,w,d] of [[0,-67,28,13],[-97,21,34,10],[98,21,33,10],[-99,-67,34,9],[117,-118,18,9]] as number[][]) {
@@ -103,7 +77,7 @@ export function enrichCity(k: DetailKit) {
     block(grass,x,4.75,z,w,.12,d);
     for(let a=-w/2+1;a<w/2;a+=2.8){block(steel,x+a,2.2,z+d/2+.12,.11,4,.18);block(glow,x+a,3.9,z+d/2-.3,1.2,.055,.12);}
     for(let a=-w/2+2;a<w/2;a+=5)shrub(x+a,z,1.2,4.8);
-    obstacles.push({x,z,rx:w/2+1,rz:d/2+1,shape:'box'});
+    obstacles.push({x,z,rx:w/2+1,rz:d/2+1,shape:'box',height:5.5});
     label(x===0?'PELAGIA GALLERY':'TIDELINE  /  CAFE',x,4.14,z+d/2+.3,Math.min(w-3,14));
   }
   cafe(-97,32);cafe(96,32);
@@ -124,8 +98,6 @@ export function enrichCity(k: DetailKit) {
   for(const x of [-31,31])for(const z of [72,92,112]) {
     bench(x,z,Math.PI/2);disk(dark,x,.12,z+2.4,.32,.20);disk(steel,x,.57,z+2.4,.27,.75);solidCircle(x,z+2.4,.35);
   }
-  for(let i=0;i<26;i++){const x=i%2?32:-32,z=-115+i*9;person(x+(i%3)*.55,z,(i%5)*.4,i,.9+(i%4)*.06);}
-  for(const [x,z] of [[19,107],[21,97],[-18,113],[22,55],[-20,62],[-28,-71],[27,-93],[130,89],[-130,-32]])person(x,z,1,Math.round(x),1);
   for(const x of [-128,128])for(let z=-116;z<130;z+=18){shrub(x,z,1.5,.25);shrub(x,z+1.4,1.3,.25);}
   // Waterfront boardwalk: slats, bollards, mooring rings, stepped seawall.
   for(const side of [-1,1]) {
@@ -134,7 +106,7 @@ export function enrichCity(k: DetailKit) {
     block(stone,0,-.6,side*149,299,1.15,1.2);block(dark,0,-1.8,side*149.3,299,.28,.1);
     for(let t=-146;t<147;t+=3){block(dark,t,-.8,side*149.62,.025,1.2,.02);block(dark,side*149.62,-.8,t,.02,1.2,.025);}
   }
-  for(let x=-118;x<=118;x+=24){bench(x,143);person(x+4,144,-1.5,Math.round(x+120));}
+  for(let x=-118;x<=118;x+=24){bench(x,143);}
   // A side marina is visible from the public promenade; visitors remain on the island.
   block(wood,162,-.4,65,22,.6,56);block(white,151,-.2,65,3,.3,60);
   for(let z=40;z<=92;z+=6){add(cyl,dark,169,-1,z,.2,2,.2);block(white,161,-.02,z,19,.07,.055);}
@@ -151,5 +123,5 @@ export function enrichCity(k: DetailKit) {
     pipe([new THREE.Vector3(x,.45,z-.7),new THREE.Vector3(x,1,z-.3),new THREE.Vector3(x,.45,z+.7),new THREE.Vector3(x,.5,z-.05),new THREE.Vector3(x,.45,z-.7)],.035,steel,8);
     block(dark,x,1.05,z-.3,.3,.09,.22);block(steel,x,1.2,z+.5,.55,.04,.05);
   }
-  cone.dispose();sphere.dispose();cyl.dispose();torus.dispose();headGeometry.dispose();hairGeometry.dispose();
+  cone.dispose();sphere.dispose();cyl.dispose();torus.dispose();
 }
