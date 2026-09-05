@@ -5,6 +5,9 @@ const X=new THREE.Vector3(1,0,0),Y=new THREE.Vector3(0,1,0),Z=new THREE.Vector3(
 const STEERING_AXIS=new THREE.Vector3(0,.94,-.342).normalize();
 const PIVOT=new THREE.Vector3(0,.85,.405);
 const GRIP_Q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(Z,Y.clone().negate(),X));
+const CORRECTED_BONES=['Bip01_Spine1','Bip01_Head',...(['L','R'] as const).flatMap(side=>['UpperArm','Forearm','Hand'].map(part=>`Bip01_${side}_${part}`))];
+type AnimationPose={bone:THREE.Object3D;rotation:THREE.Quaternion}[];
+const animationPoses=new WeakMap<CyclistActor,AnimationPose>();
 function setWorldQuaternion(bone:THREE.Object3D,q:THREE.Quaternion){bone.quaternion.copy(bone.parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(q));bone.updateWorldMatrix(false,true);}
 /** Two-bone rotations only; does not rescale or translate any limb bone. */
 function armIK(root:THREE.Object3D,side:'L'|'R',target:THREE.Vector3,handQ:THREE.Quaternion,pole:THREE.Vector3){
@@ -31,12 +34,22 @@ export function retargetCyclistArms(root:THREE.Group,matrix:THREE.Matrix4,steer:
 }
 /** Helper body for Characters.updateRider(matrix,yaw,crank,steer,speed,visible,dt). */
 export function poseRider(actor:CyclistActor,matrix:THREE.Matrix4,yaw:number,crank:number,steer:number,speed:number,visible:boolean,dt:number){
+ // Three's mixer skips writing unchanged animation tracks. Remove last frame's
+ // procedural corrections first, so a constant chest pose cannot accumulate turns.
+ const previousPose=animationPoses.get(actor);
+ if(previousPose&&(actor.action==='cycling'||actor.action==='cycling_rest')){
+  for(const {bone,rotation} of previousPose)bone.quaternion.copy(rotation);
+ }
  matrix.decompose(actor.root.position,actor.root.quaternion,actor.root.scale);actor.yaw=yaw;actor.root.visible=visible;
  const restPhase=Math.abs(Math.atan2(Math.sin(crank-Math.PI/2),Math.cos(crank-Math.PI/2)));
  const key=Math.abs(speed)<.08&&restPhase<.04?'cycling_rest':'cycling',action=actor.actions[key];if(!action)return;
  if(actor.action!==key){const previous=actor.actions[actor.action];if(actor.action==='cycling'||actor.action==='cycling_rest'){previous?.fadeOut(.22);action.reset().setEffectiveWeight(1).fadeIn(.22).play();}else{actor.mixer.stopAllAction();action.reset().setEffectiveWeight(1).play();}actor.action=key;}
  action.paused=true;action.time=key==='cycling'?THREE.MathUtils.euclideanModulo(crank,Math.PI*2)/(Math.PI*2)*action.getClip().duration:0;
- actor.mixer.update(Math.max(0,dt));retargetCyclistArms(actor.root,matrix,steer);
+ actor.mixer.update(Math.max(0,dt));
+ const pose=previousPose??CORRECTED_BONES.flatMap(name=>{const bone=actor.root.getObjectByName(name);return bone?[{bone,rotation:new THREE.Quaternion()}]:[];});
+ for(const {bone,rotation} of pose)rotation.copy(bone.quaternion);
+ animationPoses.set(actor,pose);
+ retargetCyclistArms(actor.root,matrix,steer);
 }
 export const CYCLING_REST_CRANK=Math.PI/2;
 export const FEEDING={duration:.8,releaseTime:.42,handBone:'Bip01_R_Hand',localHandForwardOffset:.075};
