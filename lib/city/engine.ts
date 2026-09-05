@@ -8,7 +8,8 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildWorld } from './world';
 import { Characters } from './characters';
-import { JumpController } from './jump';
+import { JumpController, jumpKind, jumpVelocity } from './jump';
+import { SeatController, nearestSeat, type Seat } from './seating';
 import { Traffic } from './traffic';
 import { locomotionSpeed } from './locomotion';
 import { TrafficSignals } from './signals';
@@ -16,7 +17,7 @@ import { followOffset, resolveFollowCamera } from './camera';
 import { EYE_HEIGHT, SPAWN, moveWithCollisions, movementVector, groundHeight } from './movement';
 
 export type ViewMode = 'first' | 'third' | 'aerial';
-export type CityState = { ready: boolean; locked: boolean; active: boolean; mode: ViewMode; x: number; z: number; yaw: number; fps: number; calls: number; triangles: number; zone: string; fallback: boolean; sprinting:boolean };
+export type CityState = { ready: boolean; locked: boolean; active: boolean; mode: ViewMode; x: number; z: number; yaw: number; fps: number; calls: number; triangles: number; zone: string; fallback: boolean; sprinting:boolean; seated:boolean; interaction:'sit'|'stand'|'busy'|null };
 export class CityEngine {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
@@ -37,7 +38,9 @@ export class CityEngine {
   private playerSpeed = 0;
   private moveSpeed = 0;
   private sprintToggled = false;
-  private runningJump = false;
+  private velocity={x:0,z:0};
+  private seating=new SeatController();
+  private nearbySeat?:Seat;
   private cameraTarget = new THREE.Vector3();
   private reflection?: THREE.WebGLRenderTarget;
   keys = new Set<string>();
@@ -170,13 +173,15 @@ export class CityEngine {
     if (e.code === 'KeyB' && !e.repeat) { this.setMode(this.mode === 'aerial' ? this.streetMode : 'aerial'); return; }
     if (e.code === 'KeyR' && !e.repeat) { this.reset(); return; }
     if (!this.active || this.mode === 'aerial') return;
+    if(e.code==='KeyE'&&!e.repeat){e.preventDefault();this.interactSeat();return;}
     if(e.code==='KeyQ'&&!e.repeat){e.preventDefault();this.toggleSprint();return;}
     if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','ShiftLeft','ShiftRight'].includes(e.code)) {
       e.preventDefault(); this.keys.add(e.code); if (!e.repeat) this.tappedKeys.add(e.code);
-      if(e.code==='Space'&&!e.repeat&&this.jump.request()){
-        const moving=['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].some(key=>this.keys.has(key));
-        this.runningJump=this.playerSpeed>.8||(moving&&(this.sprintToggled||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight')));
+      if(this.seating.frame.phase!=='none'){
+        if(this.seating.frame.phase==='seated'&&!e.repeat&&!e.code.startsWith('Shift'))this.seating.stand(this.world.obstacles);
+        return;
       }
+      if(e.code==='Space'&&!e.repeat){const kind=jumpKind(this.playerSpeed);if(this.jump.request(kind))this.characters.prepareJump(kind);}
     }
   };
   private onMouseMove = (e: MouseEvent) => { if (this.locked && this.mode !== 'aerial') this.look(e.movementX, e.movementY); };
@@ -189,12 +194,13 @@ export class CityEngine {
     this.cameraTarget.set(this.walkPosition.x,this.walkPosition.y-.3,this.walkPosition.z);
     const offset=followOffset(this.yaw,THREE.MathUtils.clamp(this.pitch,-.8,.42));
     const desired=this.cameraTarget.clone().add(new THREE.Vector3(offset.x,offset.y,offset.z));
-    const safe=resolveFollowCamera(this.cameraTarget,desired,this.world.obstacles);
+    const safe=resolveFollowCamera(this.cameraTarget,desired,this.cameraObstacles());
     if(snap)this.camera.position.set(safe.x,safe.y,safe.z);
     else this.camera.position.lerp(new THREE.Vector3(safe.x,safe.y,safe.z),1-Math.exp(-dt*14));
-    const corrected=resolveFollowCamera(this.cameraTarget,this.camera.position,this.world.obstacles);
+    const corrected=resolveFollowCamera(this.cameraTarget,this.camera.position,this.cameraObstacles());
     this.camera.position.set(corrected.x,corrected.y,corrected.z);this.camera.lookAt(this.cameraTarget);
   }
+  private cameraObstacles(){const seat=this.seating.frame.seat;return seat?this.world.obstacles.filter(o=>o!==seat.obstacle):this.world.obstacles;}
   private enableFallback() { if (this.dead || this.mode === 'aerial') return; this.fallback = true; this.active = true; this.notice('已启用拖动观察：按住画面拖动，WASD 自由移动。'); this.emit(); }
   enter() {
     if (this.mode === 'aerial') this.setMode(this.streetMode);
@@ -218,7 +224,7 @@ export class CityEngine {
   reset() { this.teleport(SPAWN.x,SPAWN.z,SPAWN.yaw,this.mode==='first'?SPAWN.pitch:-.12);this.notice('已回到滨海广场入口'); }
   teleport(x:number,z:number,yaw:number,pitch=.14) {
     this.pause();if(this.mode==='aerial')this.mode=this.streetMode;this.orbit.enabled=false;this.yaw=yaw;
-    this.pitch=this.mode==='third'?-.12:pitch;this.walkPosition.set(x,EYE_HEIGHT,z);this.jump.reset();this.moveSpeed=0;
+    this.pitch=this.mode==='third'?-.12:pitch;this.walkPosition.set(x,EYE_HEIGHT,z);this.jump.reset();this.seating.reset();this.velocity={x:0,z:0};this.moveSpeed=0;
     this.characterYaw=yaw+Math.PI;this.applyLook();this.emit();
   }
   setQuality(quality: number) {
@@ -228,11 +234,21 @@ export class CityEngine {
     this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; this.renderer.shadowMap.needsUpdate = true; this.resize();
   }
   touchMove(code: string, down: boolean) { if (down) { if (this.mode === 'aerial') this.setMode(this.streetMode); this.active = true; this.fallback = true; this.keys.add(code); } else this.keys.delete(code); this.emit(); }
+  interactSeat(){
+    if(this.mode==='aerial'||this.jump.frame.phase!=='grounded')return;
+    if(this.seating.frame.phase==='seated')this.seating.stand(this.world.obstacles);
+    else if(this.seating.frame.phase==='none'){
+      const seat=nearestSeat(this.walkPosition,this.world.seats,this.world.obstacles);
+      if(!seat||!this.seating.request(seat,this.walkPosition,this.world.obstacles))return;
+    }else return;
+    this.keys.clear();this.tappedKeys.clear();this.velocity={x:0,z:0};this.moveSpeed=0;
+    this.active=true;if(!this.locked)this.fallback=true;this.renderer.domElement.focus();this.emit();
+  }
   toggleSprint(){this.sprintToggled=!this.sprintToggled;if(this.active)this.renderer.domElement.focus();this.emit();}
   private zone() { const { x, z } = this.walkPosition; if (Math.abs(x) > 132 || Math.abs(z) > 130) return '环岛滨水步道'; if (z>70&&z<108&&Math.abs(x)>18&&Math.abs(x)<30) return '海风市集'; if (z > 52 && Math.abs(x) < 35) return '滨海广场'; if (Math.abs(x) < 33 && z < 40 && z > -55) return '潮汐之塔'; if (Math.abs(Math.abs(x) - 48) < 16) return '棕榈大道'; return '蓝湾街区'; }
   private emit(fps = 0) {
     this.report({ ready: this.assetsReady, locked: this.locked, active: this.active, mode: this.mode, x: this.walkPosition.x, z: this.walkPosition.z, yaw: this.yaw, fps,
-      calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, zone: this.mode === 'aerial' ? '全城鸟瞰' : this.zone(), fallback: this.fallback, sprinting:this.sprintToggled||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight') });
+      calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, zone: this.mode === 'aerial' ? '全城鸟瞰' : this.zone(), fallback: this.fallback, sprinting:this.sprintToggled||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight'), seated:this.seating.frame.phase==='seated', interaction:this.mode==='aerial'?null:this.seating.frame.phase==='seated'?'stand':this.seating.frame.phase!=='none'?'busy':this.nearbySeat?'sit':null });
   }
   private tick = (now: number) => {
     if (this.dead) return;
@@ -242,25 +258,37 @@ export class CityEngine {
     this.elapsed += dt; this.frames++;
     this.signals.update(this.elapsed);
     this.traffic.update(dt,this.walkPosition,this.signals,this.elapsed);
+    const wasSeating=this.seating.frame.phase!=='none',seatFrame=this.seating.update(dt,this.world.obstacles);
+    const wasJumping=this.jump.frame.phase!=='grounded',jumpFrame=this.jump.update(dt);
     this.playerSpeed=0;
-    if (this.mode !== 'aerial' && this.active) {
-      const held = (key: string) => this.keys.has(key) || this.tappedKeys.has(key);
-      const forward = Number(held('KeyW') || held('ArrowUp')) - Number(held('KeyS') || held('ArrowDown'));
-      const right = Number(held('KeyD') || held('ArrowRight')) - Number(held('KeyA') || held('ArrowLeft'));
-      const sprint=this.sprintToggled||held('ShiftLeft')||held('ShiftRight');
+    if(wasSeating){
+      this.walkPosition.x=seatFrame.x;this.walkPosition.z=seatFrame.z;this.characterYaw=seatFrame.yaw;
+      this.playerSpeed=seatFrame.speed;this.velocity={x:0,z:0};this.moveSpeed=0;
+    }else {
+      let desired={x:0,z:0};
+      if(this.mode!=='aerial'&&this.active){
+        const held=(key:string)=>this.keys.has(key)||this.tappedKeys.has(key);
+        const forward=Number(held('KeyW')||held('ArrowUp'))-Number(held('KeyS')||held('ArrowDown'));
+        const right=Number(held('KeyD')||held('ArrowRight'))-Number(held('KeyA')||held('ArrowLeft'));
+        this.moveSpeed=locomotionSpeed(this.moveSpeed,forward!==0||right!==0,this.sprintToggled||held('ShiftLeft')||held('ShiftRight'),dt);
+        const direction=movementVector(forward,right,this.yaw,this.moveSpeed,1);desired={x:direction.dx,z:direction.dz};
+      }else this.moveSpeed=0;
       this.tappedKeys.clear();
-      this.moveSpeed=locomotionSpeed(this.moveSpeed,forward!==0||right!==0,sprint,dt);
-      const { dx, dz } = movementVector(forward, right, this.yaw, this.moveSpeed, dt);
-      const p = moveWithCollisions(this.walkPosition.x, this.walkPosition.z, dx, dz, this.world.obstacles);
-      this.playerSpeed=Math.hypot(p.x-this.walkPosition.x,p.z-this.walkPosition.z)/dt;
-      if(this.playerSpeed>.05)this.characterYaw=Math.atan2(p.x-this.walkPosition.x,p.z-this.walkPosition.z);
-      this.walkPosition.x=p.x;this.walkPosition.z=p.z;
-
-    } else {this.moveSpeed=0;if (this.mode === 'aerial') this.orbit.update();}
-    const jumpFrame=this.jump.update(dt);this.walkPosition.y=EYE_HEIGHT+jumpFrame.height;
+      this.velocity=wasJumping?jumpVelocity(this.velocity,desired,jumpFrame.phase,dt):desired;
+      const previous={x:this.walkPosition.x,z:this.walkPosition.z};
+      const next=moveWithCollisions(previous.x,previous.z,this.velocity.x*dt,this.velocity.z*dt,this.world.obstacles);
+      this.velocity={x:(next.x-previous.x)/dt,z:(next.z-previous.z)/dt};
+      this.playerSpeed=Math.hypot(this.velocity.x,this.velocity.z);
+      if(this.playerSpeed>.05&&jumpFrame.phase!=='airborne'&&jumpFrame.phase!=='takeoff')this.characterYaw=Math.atan2(this.velocity.x,this.velocity.z);
+      this.walkPosition.x=next.x;this.walkPosition.z=next.z;
+    }
+    if(this.mode==='aerial')this.orbit.update();
+    const ground=seatFrame.seat&&['sitDown','seated','standUp'].includes(seatFrame.phase)?seatFrame.seat.ground:groundHeight(this.walkPosition.x,this.walkPosition.z);
+    this.walkPosition.y=ground+EYE_HEIGHT+jumpFrame.height-.52*seatFrame.progress;
+    this.nearbySeat=seatFrame.phase==='none'&&jumpFrame.phase==='grounded'?nearestSeat(this.walkPosition,this.world.seats,this.world.obstacles):undefined;
     if(this.mode==='first')this.applyLook();else if(this.mode==='third')this.updateFollow(dt);
-    const feet=new THREE.Vector3(this.walkPosition.x,this.walkPosition.y-EYE_HEIGHT+groundHeight(this.walkPosition.x,this.walkPosition.z),this.walkPosition.z);
-    this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,jumpFrame,this.runningJump);
+    const feet=new THREE.Vector3(this.walkPosition.x,ground+jumpFrame.height,this.walkPosition.z);
+    this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,jumpFrame,seatFrame);
     this.characters.update(this.elapsed,this.walkPosition,this.mode==='aerial');
     this.world.update(this.elapsed);
     if(this.elapsed-this.lastShadow>.12){this.renderer.shadowMap.needsUpdate=true;this.lastShadow=this.elapsed;}

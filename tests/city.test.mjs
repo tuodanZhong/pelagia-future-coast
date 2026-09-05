@@ -27,7 +27,7 @@ test('pool corners and world bounds block walking', () => {
 });
 const world = buildWorld(new THREE.Scene());
 test('spawn and every destination are clear of all obstacles', () => {
-  for (const p of [SPAWN,{x:18.7,z:102.7},{x:-48,z:30},{x:138,z:105}]) assert.ok(isWalkable(p.x,p.z,world.obstacles),JSON.stringify(p));
+  for (const p of [SPAWN,{x:18.7,z:102.7},{x:-48,z:30},{x:138,z:105},{x:19.8,z:106.6},{x:68,z:74}]) assert.ok(isWalkable(p.x,p.z,world.obstacles),JSON.stringify(p));
 });
 test('continuous routes exist on both avenues and waterfront', () => {
   for (const x of [-48,48,138,-138]) for (let z=-125;z<=125;z++) assert.ok(isWalkable(x,z,world.obstacles),`${x},${z}`);
@@ -75,7 +75,7 @@ test('jump has grounded anticipation, a ballistic flight, and grounded landing r
   jump.update(.08);assert.equal(jump.frame.phase,'takeoff');assert.equal(jump.frame.height,0);
   assert.equal(jump.request(),false);
   const apex=sampleJump(JUMP_TIMING.takeoff+FLIGHT_DURATION/2);
-  assert.equal(apex.phase,'airborne');assert.ok(apex.height>.7&&apex.height<.8);assert.ok(Math.abs(apex.velocity)<1e-8);
+  assert.equal(apex.phase,'airborne');assert.ok(apex.height>.27&&apex.height<.29);assert.ok(Math.abs(apex.velocity)<1e-8);
   const landing=sampleJump(JUMP_TIMING.takeoff+FLIGHT_DURATION+.1);
   assert.equal(landing.phase,'landing');assert.equal(landing.height,0);
   jump.update(JUMP_DURATION);assert.equal(jump.frame.phase,'grounded');assert.equal(jump.request(),true);
@@ -84,7 +84,7 @@ test('jump has grounded anticipation, a ballistic flight, and grounded landing r
 test('jump clip bends both legs and swings both arms on the same clock as physics',async()=>{
   const {readFile}=await import('node:fs/promises');
   const {JUMP_DURATION}=await import('../lib/city/jump.ts');
-  const json=JSON.parse(await readFile(new URL('../public/assets/jump-clip.json',import.meta.url),'utf8'));
+  const json=JSON.parse(await readFile(new URL('../public/assets/jump-idle.json',import.meta.url),'utf8'));
   const clip=THREE.AnimationClip.parse(json);assert.ok(Math.abs(clip.duration-JUMP_DURATION)<1e-6);
   for(const side of ['L','R'])for(const limb of ['Calf','UpperArm']){
     const t=clip.tracks.find(t=>t.name.includes(`${side}_${limb}`)&&t.name.endsWith('.quaternion'));
@@ -97,7 +97,7 @@ test('population contains distinct men, women, seniors and true child models on 
   assert.ok(new Set(CITIZENS.map(p=>p.model)).size>=7);
   for(const kind of ['adult','senior','child'])for(const sex of ['male','female'])
     assert.ok(PERSON_MODELS.some(m=>m.kind===kind&&m.sex===sex&&CITIZENS.some(p=>p.model===m.id)));
-  for(const p of CITIZENS){assert.ok(isWalkable(p.x,p.z,world.obstacles,.30),`pedestrian ${p.model}: ${p.x},${p.z}`);}
+  for(const p of CITIZENS){if(p.seatId){assert.ok(world.seats.some(s=>s.id===p.seatId&&s.occupied));continue;}assert.ok(isWalkable(p.x,p.z,world.obstacles,.30),`pedestrian ${p.model}: ${p.x},${p.z}`);}
   for(const m of PERSON_MODELS.filter(m=>m.kind==='child'))assert.ok(m.height<1.5&&m.file.includes('npc-'));
 });
 
@@ -146,7 +146,7 @@ test('traffic signals have exclusive phases, clearance intervals and correct app
   assert.ok(signals.root.children.length<=8);
   for(const x of [-48,48,138,-138])for(let z=-125;z<=125;z++)assert.ok(isWalkable(x,z,fixed),`signal pole blocks ${x},${z}`);
   const {CITIZENS}=await import('../lib/city/population.ts');
-  for(const p of CITIZENS)assert.ok(isWalkable(p.x,p.z,fixed,.3),`signal overlaps citizen ${p.x},${p.z}`);
+  for(const p of CITIZENS.filter(p=>!p.seatId))assert.ok(isWalkable(p.x,p.z,fixed,.3),`signal overlaps citizen ${p.x},${p.z}`);
   signals.update(SIGNAL_CYCLE_SECONDS/2);signals.dispose();assert.equal(fixed.length,world.obstacles.length);
 });
 test('cars stop before a red signal and accelerate again on green',async()=>{
@@ -167,12 +167,61 @@ test('running jump has a distinct, synchronised pose and the market is accessibl
   const {readFile}=await import('node:fs/promises');
   const {JUMP_DURATION}=await import('../lib/city/jump.ts');
   const {STREET_LIFE_VENUES}=await import('../lib/city/street-life.ts');
-  const standing=JSON.parse(await readFile(new URL('../public/assets/jump-clip.json',import.meta.url),'utf8'));
-  const running=JSON.parse(await readFile(new URL('../public/assets/jump-run-clip.json',import.meta.url),'utf8'));
-  assert.equal(running.name,'JumpRun');assert.ok(Math.abs(running.duration-JUMP_DURATION)<1e-6);
+  const standing=JSON.parse(await readFile(new URL('../public/assets/jump-idle.json',import.meta.url),'utf8'));
+  const running=JSON.parse(await readFile(new URL('../public/assets/jump-run.json',import.meta.url),'utf8'));
+  const {jumpDuration}=await import('../lib/city/jump.ts');
+  assert.equal(running.name,'JumpRun');assert.ok(Math.abs(running.duration-jumpDuration('run'))<1e-6);
   const leg='Bip01_L_Thigh.quaternion';
   assert.notDeepEqual(standing.tracks.find(t=>t.name===leg)?.values,running.tracks.find(t=>t.name===leg)?.values);
   assert.equal(STREET_LIFE_VENUES.filter(v=>v.type==='stall').length,4);
   assert.equal(STREET_LIFE_VENUES.filter(v=>v.type==='shop').length,3);
   for(let z=103;z<=116;z+=.25)assert.ok(isWalkable(18.2,z,world.obstacles),`market access ${z}`);
+});
+test('walking hops preserve takeoff momentum despite releasing controls or turning the camera',async()=>{
+  const {jumpVelocity,jumpDuration,flightDuration,JUMP_PROFILES,sampleJump}=await import('../lib/city/jump.ts');
+  let v={x:0,z:-1.8};
+  for(let i=0;i<24;i++)v=jumpVelocity(v,{x:5,z:0},'airborne',1/60);
+  assert.equal(v.x,0);assert.ok(v.z< -1.7);
+  const walk=sampleJump(JUMP_PROFILES.walk.takeoff+flightDuration('walk')/2,'walk');
+  const run=sampleJump(JUMP_PROFILES.run.takeoff+flightDuration('run')/2,'run');
+  assert.ok(walk.height<.3&&run.height>.4&&run.height<.45);assert.ok(jumpDuration('walk')<.75);
+  const {readFile}=await import('node:fs/promises');
+  for(const [file,name] of [['jump-walk.json','JumpWalk'],['jump-walk-left.json','JumpWalkLeft']]){
+    const clip=THREE.AnimationClip.parse(JSON.parse(await readFile(new URL('../public/assets/'+file,import.meta.url),'utf8')));
+    assert.equal(clip.name,name);assert.ok(Math.abs(clip.duration-jumpDuration('walk'))<1e-6);
+    assert.ok(clip.tracks.every(t=>t.name.endsWith('.quaternion')||t.name==='Bip01.position'));
+  }
+});
+test('seating aligns, plays transitions, and exits to unobstructed ground',async()=>{
+  const {SeatController,nearestSeat,seatExit}=await import('../lib/city/seating.ts');
+  assert.ok(world.seats.length>=18);assert.equal(new Set(world.seats.map(s=>s.id)).size,world.seats.length);
+  const position={x:19.8,z:106.6},seat=nearestSeat(position,world.seats,world.obstacles);assert.ok(seat);
+  const sitting=new SeatController();assert.equal(sitting.request(seat,position,world.obstacles),true);
+  for(let i=0;i<300;i++)sitting.update(1/60,world.obstacles);
+  assert.equal(sitting.frame.phase,'seated');assert.equal(sitting.frame.progress,1);assert.equal(sitting.request(seat,position,world.obstacles),false);
+  assert.equal(sitting.stand(world.obstacles),true);
+  for(let i=0;i<300;i++)sitting.update(1/60,world.obstacles);
+  assert.equal(sitting.frame.phase,'none');assert.ok(isWalkable(sitting.frame.x,sitting.frame.z,world.obstacles));
+  for(const seat of world.seats.filter(s=>s.id.startsWith('terrace')))assert.ok(seatExit(seat,world.obstacles),seat.id);
+  sitting.reset();assert.equal(sitting.frame.phase,'none');
+});
+test('seated animation keeps bone proportions and includes separate sit, rest, and stand clips',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const {SEATING_TIMING}=await import('../lib/city/seating.ts');
+  for(const [file,name,duration] of [['sit-down.json','SitDown',SEATING_TIMING.sitDown],['seated-idle.json','SeatedIdle',undefined],['stand-up.json','StandUp',SEATING_TIMING.standUp],['seated-idle-male.json','SeatedIdle',undefined],['seated-idle-female.json','SeatedIdle',undefined]]){
+    const clip=JSON.parse(await readFile(new URL('../public/assets/'+file,import.meta.url),'utf8'));
+    assert.equal(clip.name,name);if(duration)assert.ok(Math.abs(clip.duration-duration)<1e-6);
+    assert.ok(clip.tracks.length>40);
+    assert.deepEqual(clip.tracks.filter(t=>t.name.endsWith('.position')).map(t=>t.name),['Bip01.position']);
+    assert.ok(clip.tracks.every(t=>!t.name.endsWith('.scale')));
+  }
+});
+test('company identities follow every tower facade and both specialist shops are present',async()=>{
+  const {BUILDING_IDENTITIES,describeBuildingIdentities}=await import('../lib/city/identities.ts');
+  const {RETAIL_PLACEMENTS}=await import('../lib/city/retail.ts');
+  assert.equal(BUILDING_IDENTITIES.length,8);
+  const signs=describeBuildingIdentities(TOWERS);assert.equal(signs.length,16);
+  for(const sign of signs){assert.ok(sign.width>1&&sign.height>.2);assert.ok(sign.mountGap>0&&sign.mountGap<.5);assert.ok(Object.values(sign.position).every(Number.isFinite));}
+  assert.equal(RETAIL_PLACEMENTS.length,2);
+  for(const p of [{x:-66.6,z:75},{x:66.1,z:74}])assert.ok(isWalkable(p.x,p.z,world.obstacles));
 });

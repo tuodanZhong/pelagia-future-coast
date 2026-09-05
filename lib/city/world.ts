@@ -5,6 +5,10 @@ import { createVegetation } from './vegetation.ts';
 import { enrichCity } from './details.ts';
 import { buildArchitecture } from './architecture.ts';
 import { buildStreetLife } from './street-life.ts';
+import type { Seat } from './seating';
+import { buildBuildingIdentities } from './identities.ts';
+import { buildRetail } from './retail.ts';
+import { CITIZENS } from './population.ts';
 
 export const TOWERS = [
   { x: 0, z: -16, h: 106, r: 12, rot: 0.2, name: '潮汐之塔' },
@@ -22,6 +26,7 @@ function material(color: THREE.ColorRepresentation, roughness = 0.7, metalness =
 export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingManager) {
   const root = new THREE.Group(); scene.add(root);
   const obstacles: Obstacle[] = [];
+  const seats:Seat[]=[];
   const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
   const white = material('#d6d4cd', 0.78, 0.0), pavement = material('#dadbd8'), pale = material('#e1dfd4');
   const asphalt = material('#b6b6b6', 0.96), lines = material('#ececd9'), yellow = material('#d1c29a');
@@ -117,6 +122,7 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
     }
   }
   buildArchitecture({root,obstacles,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light},TOWERS);
+  buildBuildingIdentities({add},TOWERS);
   TOWERS.forEach(({x,z},index)=>{
     // Rectangular garden courts and reflecting pools near each tower.
     const gx = x + (x < 0 ? -24 : 24);
@@ -190,8 +196,10 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
     block(steel, t, 0.55, side * 147, 0.08, 1.1, 0.08); block(steel, side * 147, 0.55, t, 0.08, 1.1, 0.08);
   }
   for (const side of [-1, 1]) { block(steel, 0, 1.12, side * 147, 294, 0.09, 0.09); block(steel, side * 147, 1.12, 0, 0.09, 0.09, 294); }
-  enrichCity({root,obstacles,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light});
-  buildStreetLife({root,obstacles,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light});
+  enrichCity({root,obstacles,seats,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light});
+  buildStreetLife({root,obstacles,seats,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light});
+  buildRetail({root,obstacles,add,block,pipe,white,steel,dark});
+  for(const seat of seats)seat.occupied=CITIZENS.some(c=>c.seatId===seat.id);
   // Batch fixed architectural details into one draw call per material.
   for (const [m, geometries] of batches) {
     const g = mergeGeometries(geometries, false);
@@ -223,7 +231,7 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
   water.customProgramCacheKey=()=> 'coastal-pbr-water-v1';
   const sea = new THREE.Mesh(new THREE.PlaneGeometry(30000, 30000), water); sea.rotation.x = -Math.PI / 2; sea.position.y = -2; root.add(sea);
   box.dispose(); cylinder.dispose(); sphere.dispose();
-  return { obstacles, root, glass, update(time: number) {
+  return { obstacles, seats, root, glass, update(time: number) {
     waterUniforms.uTime.value = time; sculpture.rotation.y = time * 0.065;
   } };
 }

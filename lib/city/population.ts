@@ -1,5 +1,5 @@
 export type PersonKind='adult'|'senior'|'child';
-export type PersonModel={id:string;file:string;kind:PersonKind;sex:'male'|'female';height:number;gaitSpeed:number};
+export type PersonModel={id:string;file:string;kind:PersonKind;sex:'male'|'female';height:number;gaitSpeed:number;seatedFile?:string};
 export const PERSON_MODELS:PersonModel[]=[
   {id:'player',file:'pelagia-citizen.glb',kind:'adult',sex:'male',height:1.78,gaitSpeed:1.4},
   {id:'woman',file:'pelagia-citizen-female.glb',kind:'adult',sex:'female',height:1.68,gaitSpeed:1.29},
@@ -7,10 +7,10 @@ export const PERSON_MODELS:PersonModel[]=[
   {id:'senior-female',file:'npc-senior-female.glb',kind:'senior',sex:'female',height:1.65,gaitSpeed:1.29},
   {id:'boy',file:'npc-boy.glb',kind:'child',sex:'male',height:1.36,gaitSpeed:1.11},
   {id:'girl',file:'npc-girl.glb',kind:'child',sex:'female',height:1.34,gaitSpeed:1.06},
-  {id:'casual-male',file:'npc-casual-male.glb',kind:'adult',sex:'male',height:1.82,gaitSpeed:1.4},
-  {id:'casual-female',file:'npc-casual-female.glb',kind:'adult',sex:'female',height:1.72,gaitSpeed:1.29},
+  {id:'casual-male',file:'npc-casual-male.glb',kind:'adult',sex:'male',height:1.82,gaitSpeed:1.4,seatedFile:'seated-idle-male.json'},
+  {id:'casual-female',file:'npc-casual-female.glb',kind:'adult',sex:'female',height:1.72,gaitSpeed:1.29,seatedFile:'seated-idle-female.json'},
 ];
-export type CitizenSpec={model:string;x:number;z:number;pace:number;route:number;yaw?:number;offset?:number;wardrobe?:string};
+export type CitizenSpec={model:string;x:number;z:number;pace:number;route:number;yaw?:number;offset?:number;wardrobe?:string;seatId?:string};
 // Different faces share a neighbourhood; families keep their matching short sidewalk routes.
 export const CITIZENS:CitizenSpec[]=[
   {model:'senior-male',x:21,z:113,pace:0,route:0,yaw:-.9},
@@ -38,4 +38,6 @@ export const CITIZENS:CitizenSpec[]=[
   {model:'boy',x:24.32,z:79.75,pace:0,route:0,yaw:Math.PI/2},
   {model:'woman',x:-26.66,z:79.5,pace:0,route:0,yaw:Math.PI/2,wardrobe:'#a0b3ae'},
   {model:'casual-male',x:-24.32,z:79.25,pace:0,route:0,yaw:-Math.PI/2,wardrobe:'#adb8c0'},
+  {model:'casual-male',x:-22.1,z:105.4,pace:0,route:0,yaw:Math.PI/2,wardrobe:'#aeb9bc',seatId:'terrace--22.10-105.4'},
+  {model:'casual-female',x:-19.3,z:105.4,pace:0,route:0,yaw:-Math.PI/2,seatId:'terrace--19.30-105.4'},
 ];

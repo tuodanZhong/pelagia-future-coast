@@ -9,7 +9,7 @@ export function groundHeight(x:number,z:number) {
     if(Math.abs(x-cx)<(cx===0?36.5:35)&&Math.abs(z-cz)<(cz===0?36.5:30))return .125;
   return .04;
 }
-export function isWalkable(x: number, z: number, obstacles: Obstacle[], radius = 0.65) {
+export function isWalkable(x: number, z: number, obstacles: Obstacle[], radius = 0.34) {
   if (!Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) > WORLD_EDGE || Math.abs(z) > WORLD_EDGE) return false;
   return !obstacles.some(o => o.shape === 'box'
     ? Math.abs(x - o.x) < o.rx + radius && Math.abs(z - o.z) < o.rz + radius

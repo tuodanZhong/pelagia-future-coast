@@ -3,7 +3,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { groundHeight, isWalkable, type Obstacle } from './movement';
 import { CITIZENS, PERSON_MODELS, type CitizenSpec, type PersonModel } from './population';
-import type { JumpFrame } from './jump';
+import type { JumpFrame, JumpKind } from './jump';
+import type { SeatFrame } from './seating';
 
 type Actor={root:THREE.Group;mixer:THREE.AnimationMixer;actions:Record<string,THREE.AnimationAction>;action:string;yaw:number};
 type Citizen=Actor&{spec:CitizenSpec;model:PersonModel;distance:number;direction:number;turnPause:number};
@@ -12,9 +13,10 @@ export class Characters {
   citizens:Citizen[]=[];
   private disposed=false;
   private lastNpcUpdate=0;
+  private leftJump=false;
   private jumpClips:Record<string,THREE.AnimationClip>={};
   constructor(private scene:THREE.Scene,manager:THREE.LoadingManager,private obstacles:Obstacle[],onError:()=>void) {
-    for(const [name,file] of [['jump','jump-clip.json'],['jumpRun','jump-run-clip.json']])new THREE.FileLoader(manager).setResponseType('json').load('/assets/'+file,data=>{
+    for(const [name,file] of [['jump_idle','jump-idle.json'],['jump_walk','jump-walk.json'],['jump_walk_left','jump-walk-left.json'],['jump_run','jump-run.json'],['sitDown','sit-down.json'],['seated','seated-idle.json'],['standUp','stand-up.json']])new THREE.FileLoader(manager).setResponseType('json').load('/assets/'+file,data=>{
       if(this.disposed)return;
       this.jumpClips[name]=THREE.AnimationClip.parse(data as unknown as THREE.AnimationClipJSON);
       if(this.player)this.player.actions[name]=this.player.mixer.clipAction(this.jumpClips[name]);
@@ -50,21 +52,44 @@ export class Characters {
         actor.yaw=spec.yaw??(index%2?0:Math.PI);actor.root.rotation.y=actor.yaw;
         this.citizens.push({...actor,spec,model:modelSpec,distance:spec.offset??0,direction:1,turnPause:0});
       });
+      if(modelSpec.seatedFile)new THREE.FileLoader(manager).setResponseType('json').load('/assets/'+modelSpec.seatedFile,data=>{
+        if(this.disposed)return;
+        const clip=THREE.AnimationClip.parse(data as unknown as THREE.AnimationClipJSON);
+        this.citizens.filter(a=>a.model.id===modelSpec.id&&a.spec.seatId).forEach(actor=>{
+          actor.actions.seated=actor.mixer.clipAction(clip);this.setAction(actor,'seated');actor.mixer.update(.1);
+        });
+      },undefined,onError);
     },undefined,onError));
   }
   private setAction(actor:Actor,name:string) {
+    if(!actor.actions[name])name='idle';
     if(actor.action===name)return;
     const next=actor.actions[name]??actor.actions.idle;if(!next)return;
     const old=actor.actions[actor.action],fade=name.startsWith('jump')?.06:.18;
-    next.reset().fadeIn(fade).play();old?.fadeOut(fade);actor.action=name;
+    if(['sitDown','seated','standUp'].includes(name)||['sitDown','seated','standUp'].includes(actor.action)){
+      old?.stop();next.reset().setEffectiveWeight(1).play();
+    }else{
+      next.reset();
+      if(actor.action.startsWith('jump')&&(name==='walk'||name==='run'))next.time=next.getClip().duration*(name==='run'?.80:actor.action==='jump_walk_left'?.07:.57);
+      next.fadeIn(fade).play();old?.fadeOut(fade);
+    }
+    actor.action=name;
   }
-  updatePlayer(position:THREE.Vector3,yaw:number,speed:number,visible:boolean,dt:number,jump:JumpFrame,runningJump=false) {
+  prepareJump(kind:JumpKind){
+    this.leftJump=false;if(kind!=='walk'||!this.player)return;
+    const left=this.player.root.getObjectByName('Bip01_L_Foot'),right=this.player.root.getObjectByName('Bip01_R_Foot');
+    if(left&&right){const l=left.getWorldPosition(new THREE.Vector3()),r=right.getWorldPosition(new THREE.Vector3());this.leftJump=l.y<r.y;}
+  }
+  updatePlayer(position:THREE.Vector3,yaw:number,speed:number,visible:boolean,dt:number,jump:JumpFrame,seat:SeatFrame) {
     const actor=this.player;if(!actor)return;
     actor.root.position.copy(position);actor.root.visible=visible;
     const diff=THREE.MathUtils.euclideanModulo(yaw-actor.yaw+Math.PI,Math.PI*2)-Math.PI;
     actor.yaw+=diff*(1-Math.exp(-dt*12));actor.root.rotation.y=actor.yaw;
-    const jumpName=runningJump?'jumpRun':'jump';
-    this.setAction(actor,jump.phase!=='grounded'?jumpName:speed>2.3?'run':speed>.05?'walk':'idle');
+    const jumpName='jump_'+jump.kind+(jump.kind==='walk'&&this.leftJump?'_left':''),seatPose=['sitDown','seated','standUp'].includes(seat.phase);
+    this.setAction(actor,seatPose?seat.phase:jump.phase!=='grounded'?jumpName:speed>2.3?'run':speed>.05?'walk':'idle');
+    if(seatPose&&seat.phase!=='seated'&&actor.actions[seat.phase]){
+      const action=actor.actions[seat.phase];action.paused=true;action.time=Math.min(seat.time,action.getClip().duration-.0001);
+    }
     if(actor.actions[jumpName]&&jump.phase!=='grounded') {
       // Physics owns world height; a phase-synchronised bone clip owns crouch, arms and knees.
       actor.actions[jumpName].paused=true;actor.actions[jumpName].time=Math.min(jump.time,actor.actions[jumpName].getClip().duration-.0001);
@@ -80,6 +105,7 @@ export class Characters {
       const {spec,model}=actor;
       const near=Math.hypot(actor.root.position.x-player.x,actor.root.position.z-player.z)<78;
       actor.root.visible=aerial||near;if(!near||aerial)return;
+      if(spec.seatId){this.setAction(actor,'seated');actor.mixer.update(step);return;}
       actor.turnPause=Math.max(0,actor.turnPause-step);
       const moving=spec.pace>0&&actor.turnPause===0;
       if(moving) {

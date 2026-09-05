@@ -66,11 +66,18 @@ kloofendal_38d_partly_cloudy_puresky, Poly Haven, CC0.
 https://polyhaven.com/a/kloofendal_38d_partly_cloudy_puresky
 https://polyhaven.com/license
 
-## Diverse population and authored jump
-Six additional Rocketbox models: see NPC-SOURCES.md and npc-manifest.json. Jump and JumpRun are authored skeletal animations using the original male rig and idle pose. The revised stationary and moving jumps use a short preload, push-off before launch, low arm swing, modest knee flexion, and landing recovery. JumpRun preserves staggered legs and opposing arms; it is selected at takeoff and retained until landing. It is synchronized to a 4.4 m/s launch and 13 m/s² gravity, with no baked flight arc.
+## Diverse population, jumping and seating
+Six additional Rocketbox models: see NPC-SOURCES.md and npc-manifest.json. JumpIdle, JumpWalk, JumpWalkLeft and JumpRun are authored derivatives of the player's original Idle/Walk/Run skeletal poses. Moving jumps retain gait relationships and resume a matching walk/run phase. Walking hops use a 2.7 m/s launch; running jumps use 3.3 m/s, both with 13 m/s² gravity. World movement supplies the ballistic arc and retains takeoff momentum.
+
+SitDown, SeatedIdle and StandUp are retargeted from the official Microsoft Rocketbox chair motion captures, preserving model bone lengths. Separate male/female seated loops fit the actual NPC proportions. All derivatives retain the Microsoft MIT license in LICENSE-Rocketbox.md. Verified source files in https://github.com/microsoft/Microsoft-Rocketbox:
+
+- Assets/Animations/all_animations_max_motextr_xyz/m_sit_down_chair_01.max.fbx
+- Assets/Animations/all_animations_max_motextr_xyz/m_sit_stand_up_chair_01.max.fbx
+- Assets/Animations/all_animations_max_motextr_static/m_sit_chair_breathe_01.max.fbx
+- Assets/Animations/all_animations_max_motextr_static/f_sit_chair_breathe_01.max.fbx
 
 ## Detailed traffic
 Two licensed vehicle assets, optimized for instanced traffic with independent wheel movement. Authors, licenses and adaptation notices are listed in VEHICLE-ATTRIBUTION.md and the application's /credits.html page.
 
 ## Street life and traffic signals
-Market stalls, shopfronts, fixtures, menu graphics, furnishings, and signal poles/lenses were procedurally authored for this project; no external model or texture is used for these additions.
+Market stalls, shopfronts, fixtures, menu graphics, furnishings, and signal poles/lenses were procedurally authored for this project; no external model or texture is used for these additions. Tower company identities and logos are original fictional designs. The clothing displays, grand/upright pianos, store graphics and glazing were also authored for this project.

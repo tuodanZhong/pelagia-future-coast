@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import type { Obstacle } from './movement';
+import { groundHeight } from './movement.ts';
+import type { Seat } from './seating';
 export type DetailKit = {
   root: THREE.Group; obstacles: Obstacle[];
+  seats?:Seat[];
   add:(g:THREE.BufferGeometry,m:THREE.Material,x?:number,y?:number,z?:number,sx?:number,sy?:number,sz?:number,ry?:number)=>void;
   block:(m:THREE.Material,x:number,y:number,z:number,w:number,h:number,d:number,rot?:number)=>void;
   disk:(m:THREE.Material,x:number,y:number,z:number,r:number,h:number,ratio?:number)=>void;
@@ -26,11 +29,13 @@ export function enrichCity(k: DetailKit) {
     const m=new THREE.Mesh(new THREE.PlaneGeometry(w,w*192/1024),new THREE.MeshStandardMaterial({map:tx,roughness:.6,emissive:'#8eabac',emissiveIntensity:.2}));m.position.set(x,y,z);m.rotation.y=angle;root.add(m);
   }
   function bench(x:number,z:number,angle=0) {
+    const ground=groundHeight(x,z),rise=ground+.49-.6225;
     const pt=(dx:number,dz:number)=>[x+Math.cos(angle)*dx+Math.sin(angle)*dz,z-Math.sin(angle)*dx+Math.cos(angle)*dz];
-    for(let i=0;i<5;i++){const [px,pz]=pt(0,(i-2)*.14);block(wood,px,.58,pz,2.4,.085,.11,angle);}
-    for(let i=0;i<3;i++){const [px,pz]=pt(0,-.35);block(wood,px,.82+i*.13,pz,2.4,.09,.07,angle);}
-    for(const s of [-1,1]){const [px,pz]=pt(s*.87,0);block(dark,px,.3,pz,.09,.55,.6,angle);}
-    obstacles.push({x,z,rx:angle===0?1.25:.45,rz:angle===0?.45:1.25,shape:'box'});
+    for(let i=0;i<5;i++){const [px,pz]=pt(0,(i-2)*.14);block(wood,px,.58+rise,pz,2.4,.085,.11,angle);}
+    for(let i=0;i<3;i++){const [px,pz]=pt(0,-.35);block(wood,px,.82+rise+i*.13,pz,2.4,.09,.07,angle);}
+    for(const s of [-1,1]){const [px,pz]=pt(s*.87,0);block(dark,px,.3+rise,pz,.09,.55,.6,angle);}
+    const obstacle:Obstacle={x,z,rx:angle===0?1.25:.45,rz:angle===0?.45:1.25,shape:'box',height:1.2};obstacles.push(obstacle);
+    k.seats?.push({id:`bench-${x}-${z}`,label:'长椅',x,z,yaw:angle,ground,height:.49,obstacle});
   }
   function cafe(x:number,z:number) {
     for(let j=0;j<3;j++) {

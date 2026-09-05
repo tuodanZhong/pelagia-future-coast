@@ -366,9 +366,10 @@ export function buildStreetLife(ctx: DetailKit) {
       f.path([[side * .24, .035, .26], [side * .22, .43, .23], [side * .22, .49, -.19], [side * .23, .94, -.28]], .017, dark, 8);
       f.path([[side * .25, .035, -.26], [side * .22, .45, -.19]], .017, dark, 4);
     }
-    for (let j = 0; j < 5; j++) f.box(timber, 0, .49, -.18 + j * .089, .45, .04, .068);
+    for (let j = 0; j < 5; j++) f.box(timber, 0, .47, -.18 + j * .089, .45, .04, .068);
     for (let j = 0; j < 3; j++) f.path([[-.24, .72 + j * .08, -.27], [0, .72 + j * .08, -.31], [.24, .72 + j * .08, -.27]], .031, timber, 7);
-    obstacles.push({ x, z, rx: .36, rz: .36, height: 1.05 });
+    const obstacle={ x, z, rx: .36, rz: .36, height: 1.05 };obstacles.push(obstacle);
+    ctx.seats?.push({id:`terrace-${x.toFixed(2)}-${z}`,label:'咖啡椅',x,z,yaw:rotation,ground:GROUND,height:.49,obstacle});
   }
 
   function terrace(x: number, z: number, index: number) {
@@ -380,7 +381,7 @@ export function buildStreetLife(ctx: DetailKit) {
     }
     f.shape(cylinder, timber, 0, .775, 0, .56, .057, .56);
     f.shape(cylinder, steel, 0, .742, 0, .55, .018, .55);
-    for (const side of [-1, 1]) chair(x + side * 1.04, z, side < 0 ? Math.PI / 2 : -Math.PI / 2);
+    for (const side of [-1, 1]) chair(x + side * 1.40, z, side < 0 ? Math.PI / 2 : -Math.PI / 2);
     obstacles.push({ x, z, rx: .59, rz: .59, height: .86 });
     mug(f, -.21, .807, .08, index % 2 === 0); mug(f, .22, .807, -.10);
     f.shape(cylinder, ceramic, -.20, .81, -.19, .125, .014, .125);
