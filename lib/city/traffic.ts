@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { groundHeight, isWalkable, type Obstacle } from './movement.ts';
 import { createDrivingState, stepDriving, findSafeExit, vehicleCollision, type DrivingInput, type DrivingState, type DrivingResult } from './driving.ts';
+import { POLICE_STATION } from './police-station.ts';
 import { createCityBus } from './bus.ts';
 import { drivingVelocity, resolveVehicleCrash, type CrashBody } from './vehicle-collision.ts';
 import type { TrafficSignals } from './signals';
@@ -20,7 +21,7 @@ export function createTrafficRoute(reverse=false) {
   return route;
 }
 export function brakingSpeed(speed:number,target:number,dt:number){return THREE.MathUtils.clamp(target,speed-4.5*dt,speed+1.8*dt);}
-export type Vehicle={id:string;position:THREE.Vector3;yaw:number;manual?:DrivingState;model:string;distance:number;reverse:boolean;speed:number;cruise:number;paint:string;matrix:THREE.Matrix4;roll:number;steer:number;obstacle:Obstacle;parked?:THREE.Vector3;length?:number;width?:number;height?:number;drivable?:boolean;dwellUntil?:number;nextStop?:number;crashPulse?:number};
+export type Vehicle={id:string;position:THREE.Vector3;yaw:number;manual?:DrivingState;model:string;distance:number;reverse:boolean;speed:number;cruise:number;paint:string;matrix:THREE.Matrix4;roll:number;steer:number;obstacle:Obstacle;parked?:THREE.Vector3;length?:number;width?:number;height?:number;drivable?:boolean;dwellUntil?:number;nextStop?:number;crashPulse?:number;police?:boolean};
 export type VehiclePose={id:string;x:number;z:number;yaw:number;length:number;width:number;height:number;speed:number;distance:number;roll:number;steer:number};
 type Batch={mesh:THREE.InstancedMesh;part:THREE.Matrix4;wheel:boolean;front:boolean;cars:Vehicle[];cockpit?:boolean};
 export class Traffic {
@@ -34,6 +35,7 @@ export class Traffic {
   controlled?:Vehicle;
   cockpitView=false;
   lastCrash=0;
+  externalObstacles=new Set<Obstacle>();
   private clock=0;
   private readyModels=new Set<string>();
   private obstacles:Obstacle[];
@@ -58,6 +60,10 @@ export class Traffic {
       const distance=fraction*length,obstacle:Obstacle={x,z,rx:1.25,rz:5.2,shape:'box',height:3.15};obstacles.push(obstacle);
       this.cars.push({id:'bus-'+index,position:new THREE.Vector3(),yaw:0,model:'bus',distance,reverse,speed:0,cruise:5.8,paint:'#e2e3db',matrix:new THREE.Matrix4(),roll:0,steer:0,obstacle,length:10.4,width:2.5,height:3.15,drivable:false,dwellUntil:8+index*4,nextStop:distance+(reverse?-length:length)});
     }
+    POLICE_STATION.parking.forEach((p,i)=>{
+      const obstacle:Obstacle={x:p.x,z:p.z,rx:1.1,rz:2.45,yaw:p.yaw,shape:'box',height:2.15};obstacles.push(obstacle);
+      this.cars.push({id:'police-'+i,position:new THREE.Vector3(p.x,groundHeight(p.x,p.z),p.z),yaw:p.yaw,manual:createDrivingState(p),model:'rover',distance:0,reverse:false,speed:0,cruise:0,paint:'#d4dadd',matrix:new THREE.Matrix4(),roll:0,steer:0,obstacle,police:true});
+    });
     this.update(0,new THREE.Vector3(18,1.8,116));
     this.batchTemplate(createCityBus(),this.cars.filter(c=>c.model==='bus'));this.readyModels.add('bus');
     for(const kind of ['concept','rover'])new GLTFLoader(manager).load(`/assets/${kind}-traffic.glb`,gltf=>{
@@ -181,6 +187,11 @@ export class Traffic {
     }
     this.lastCrash=response.closingSpeed;
   }
+  drivePolice(car:Vehicle,dt:number,input:DrivingInput){
+    if(!car.police||car===this.controlled)return;
+    car.manual??=createDrivingState({x:car.position.x,z:car.position.z,yaw:car.yaw,speed:car.speed});
+    this.advance(car,dt,input);this.writeMatrices();
+  }
   drive(dt:number,input:DrivingInput) {
     const car=this.controlled;if(!car?.manual)return false;
     this.lastCrash=0;const result=this.advance(car,dt,input);this.writeMatrices();return result.collided&&(result.collision?.kind!=='vehicle'||this.lastCrash>.5);
@@ -195,7 +206,7 @@ export class Traffic {
     for(const car of this.cars){
       car.crashPulse=Math.max(0,(car.crashPulse??0)-dt*2);
       if(car.manual){
-        if(car!==this.controlled&&(Math.abs(car.manual.speed)+Math.abs(car.manual.lateralSpeed??0)+Math.abs(car.manual.yawRate??0)>.001))this.advance(car,dt,{throttle:0,steer:0},true);
+        if(!car.police&&car!==this.controlled&&(Math.abs(car.manual.speed)+Math.abs(car.manual.lateralSpeed??0)+Math.abs(car.manual.yawRate??0)>.001))this.advance(car,dt,{throttle:0,steer:0},true);
         this.place(car);continue;
       }
       if(car.parked){car.position.copy(car.parked);car.yaw=car.parked.x>0?0:Math.PI;}
@@ -232,7 +243,7 @@ export class Traffic {
         const travel=car.speed*dt,distance=car.distance+travel*sign;
         const next=route.getPointAt(THREE.MathUtils.euclideanModulo(distance,length)/length),dir=route.getTangentAt(THREE.MathUtils.euclideanModulo(distance,length)/length).multiplyScalar(sign),yaw=Math.atan2(dir.x,dir.z);
         const others=this.cars.filter(c=>c!==car).map(c=>({id:c.id,x:c.position.x,z:c.position.z,yaw:c.yaw,length:c.length??4.9,width:c.width??2.2}));
-        if(dt>0&&vehicleCollision({x:next.x,z:next.z,yaw,length:car.length??4.9,width:car.width??2.2},{obstacles:[],vehicles:others},.04)){car.speed=0;this.place(car);continue;}
+        if(dt>0&&vehicleCollision({x:next.x,z:next.z,yaw,length:car.length??4.9,width:car.width??2.2},{obstacles:[...this.externalObstacles],vehicles:others},.04)){car.speed=0;this.place(car);continue;}
         car.distance=distance;car.roll+=travel/(car.model==='bus'?.49:car.model==='concept'?.384:.379);
         const future=route.getTangentAt(THREE.MathUtils.euclideanModulo(car.distance+sign*1.6,length)/length).multiplyScalar(sign);
         car.steer=THREE.MathUtils.clamp(Math.atan2(dir.x*future.z-dir.z*future.x,dir.dot(future))*1.6,-.5,.5);

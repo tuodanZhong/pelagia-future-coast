@@ -10,7 +10,13 @@ import { buildWorld } from './world';
 import { Characters } from './characters';
 import { JumpController, jumpKind, jumpVelocity } from './jump';
 import { SeatController, nearestSeat, type Seat } from './seating';
+import { PoliceDispatch } from './police-dispatch';
+import { POLICE_STATION } from './police-station';
 import { SCHOOL } from './school';
+import { Yachts } from './yachts';
+import { MARINA } from './waterfront';
+import { Bicycles } from './bicycles';
+import { Seagulls } from './seagulls';
 import { DrivingEffects } from './driving-effects';
 import { Traffic, type Vehicle } from './traffic';
 import { AttackController } from './combat';
@@ -20,7 +26,7 @@ import { followOffset, resolveFollowCamera } from './camera';
 import { EYE_HEIGHT, SPAWN, moveWithCollisions, movementVector, groundHeight, clearArrival } from './movement';
 
 export type ViewMode = 'first' | 'third' | 'aerial';
-export type CityState = { ready: boolean; locked: boolean; active: boolean; mode: ViewMode; x: number; z: number; yaw: number; fps: number; calls: number; triangles: number; zone: string; fallback: boolean; sprinting:boolean; seated:boolean; interaction:'sit'|'stand'|'busy'|null; driving:boolean; vehicleName:string; vehicleSpeed:number; vehicleGear:string; vehicleInteraction:'enter'|'exit'|null; attackHit:boolean; vehicleBoost:boolean; vehicleDrift:boolean; buses:{id:string;x:number;z:number;yaw:number;stopped:boolean}[] };
+export type CityState = { ready: boolean; locked: boolean; active: boolean; mode: ViewMode; x: number; z: number; yaw: number; fps: number; calls: number; triangles: number; zone: string; fallback: boolean; sprinting:boolean; seated:boolean; interaction:'sit'|'stand'|'busy'|null; driving:boolean; vehicleName:string; vehicleSpeed:number; vehicleGear:string; vehicleInteraction:'enter'|'exit'|null; attackHit:boolean; vehicleBoost:boolean; vehicleDrift:boolean; wantedLevel:number;wantedSearching:boolean;wantedRemaining:number;wantedArrest:number;police:{id:string;x:number;z:number;yaw:number}[]; vehicleKind:'car'|'bicycle'|'yacht'|null; feedAvailable:boolean; feedCooldown:number; gullsFeeding:number; buses:{id:string;x:number;z:number;yaw:number;stopped:boolean}[] };
 export class CityEngine {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
@@ -37,6 +43,13 @@ export class CityEngine {
   private characters: Characters;
   private traffic: Traffic;
   private drivingEffects:DrivingEffects;
+  private bicycles:Bicycles;
+  private yachts:Yachts;
+  private seagulls:Seagulls;
+  private police:PoliceDispatch;
+  private feedStart=-10;
+  private feedReleased=true;
+  private get mounted(){return !!(this.traffic.controlled||this.bicycles?.controlled||this.yachts?.controlled);}
   private signals: TrafficSignals;
   private characterYaw = SPAWN.yaw + Math.PI;
   private playerSpeed = 0;
@@ -114,6 +127,11 @@ export class CityEngine {
     this.characters = new Characters(this.scene,assetManager,this.world.obstacles,()=>this.notice('人物资源加载失败，请刷新重试。'),this.world.seats);
     this.traffic = new Traffic(this.scene,assetManager,this.world.obstacles,()=>this.notice('车辆资源加载失败，请刷新重试。'));
     this.drivingEffects=new DrivingEffects(this.scene);
+    this.bicycles=new Bicycles(this.scene,this.world.obstacles);
+    this.traffic.externalObstacles=this.bicycles.obstaclesSet;
+    this.yachts=new Yachts(this.scene,this.world.obstacles);
+    this.seagulls=new Seagulls(this.scene,this.world.obstacles);
+    this.police=new PoliceDispatch(this.scene,this.traffic);
     const target = new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,samples:4});
     this.composer = new EffectComposer(this.renderer,target);
     this.composer.addPass(new RenderPass(this.scene,this.camera));
@@ -157,7 +175,7 @@ export class CityEngine {
     this.listen(document, 'mousemove', this.onMouseMove as EventListener);
     this.listen(this.renderer.domElement, 'pointerdown', ((e: PointerEvent) => {
       if (this.mode === 'aerial') return;
-      if(this.locked&&e.button===0&&!this.traffic.controlled){this.punch();return;}
+      if(this.locked&&e.button===0&&!this.mounted){this.punch();return;}
       if (e.pointerType === 'touch') { this.active = true; this.fallback = true; }
       if (!this.active) { this.enter(); return; }
       if (!this.locked) { this.dragging = true; this.lastPointer = { x: e.clientX, y: e.clientY }; this.renderer.domElement.setPointerCapture(e.pointerId); }
@@ -184,13 +202,14 @@ export class CityEngine {
     if (e.code === 'KeyB' && !e.repeat) { this.setMode(this.mode === 'aerial' ? this.streetMode : 'aerial'); return; }
     if (e.code === 'KeyR' && !e.repeat) { this.reset(); return; }
     if (!this.active || this.mode === 'aerial') return;
+    if(e.code==='KeyG'&&!e.repeat){e.preventDefault();this.feedSeagulls();return;}
     if(e.code==='KeyF'&&!e.repeat){e.preventDefault();this.interactVehicle();return;}
     if(e.code==='KeyJ'&&!e.repeat){e.preventDefault();this.punch();return;}
     if(e.code==='KeyE'&&!e.repeat){e.preventDefault();this.interactSeat();return;}
     if(e.code==='KeyQ'&&!e.repeat){e.preventDefault();this.toggleSprint();return;}
     if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyX','Space','ShiftLeft','ShiftRight'].includes(e.code)) {
       e.preventDefault(); this.keys.add(e.code); if (!e.repeat) this.tappedKeys.add(e.code);
-      if(this.traffic.controlled)return;
+      if(this.mounted||this.elapsed-this.feedStart<.8)return;
       if(this.seating.frame.phase!=='none'){
         if(this.seating.frame.phase==='seated'&&!e.repeat&&!e.code.startsWith('Shift'))this.seating.stand(this.world.obstacles);
         return;
@@ -201,6 +220,7 @@ export class CityEngine {
   private onMouseMove = (e: MouseEvent) => { if (this.locked && this.mode !== 'aerial') this.look(e.movementX, e.movementY); };
   private look(dx: number, dy: number) { this.lastDriveLook=this.elapsed;this.yaw -= dx * 0.0022; this.pitch = THREE.MathUtils.clamp(this.pitch - dy * 0.0022, -1.3, 1.35); this.applyLook(); }
   private applyLook() {
+    if(this.bicycles.controlled||this.yachts.controlled){this.updateOutdoorCamera(1,true);return;}
     if(this.traffic.controlled){this.updateDrivingCamera(1,true);return;}
     if(this.mode==='first'){this.camera.position.copy(this.walkPosition);this.camera.rotation.set(this.pitch,this.yaw,0,'YXZ');}
     else if(this.mode==='third')this.updateFollow(1,true);
@@ -215,7 +235,7 @@ export class CityEngine {
     const corrected=resolveFollowCamera(this.cameraTarget,this.camera.position,this.cameraObstacles());
     this.camera.position.set(corrected.x,corrected.y,corrected.z);this.camera.lookAt(this.cameraTarget);
   }
-  private cameraObstacles(){const seat=this.seating.frame.seat,car=this.traffic.controlled;return this.world.obstacles.filter(o=>o!==seat?.obstacle&&o!==car?.obstacle);}
+  private cameraObstacles(){const seat=this.seating.frame.seat,car=this.traffic.controlled;return this.world.obstacles.filter(o=>o!==seat?.obstacle&&o!==car?.obstacle&&o!==this.bicycles.controlled?.obstacle);}
   private updateDrivingCamera(dt:number,snap=false){
     const car=this.traffic.controlled;if(!car||this.mode==='aerial')return;
     const desiredYaw=car.yaw+Math.PI;
@@ -230,6 +250,32 @@ export class CityEngine {
       if(snap)this.camera.position.set(safe.x,safe.y,safe.z);else this.camera.position.lerp(new THREE.Vector3(safe.x,safe.y,safe.z),1-Math.exp(-dt*9));
       const corrected=resolveFollowCamera(this.cameraTarget,this.camera.position,this.cameraObstacles());this.camera.position.set(corrected.x,corrected.y,corrected.z);this.camera.lookAt(this.cameraTarget);
     }
+  }
+  private updateOutdoorCamera(dt:number,snap=false){
+    if(this.mode==='aerial')return;
+    const bike=this.bicycles.controlled,boat=this.yachts.controlled,item=bike??boat;if(!item)return;
+    const desiredYaw=item.state.yaw+Math.PI;
+    if(this.elapsed-this.lastDriveLook>1.6){const difference=THREE.MathUtils.euclideanModulo(desiredYaw-this.yaw+Math.PI,Math.PI*2)-Math.PI;this.yaw+=difference*(1-Math.exp(-dt*2.7));}
+    if(this.mode==='first'){
+      this.camera.position.copy((bike?new THREE.Vector3(0,1.66,.14):new THREE.Vector3(0,3.07,-1.96)).applyMatrix4(item.matrix));this.camera.rotation.set(THREE.MathUtils.clamp(this.pitch,-.7,.65),this.yaw,0,'YXZ');
+    }else{
+      this.cameraTarget.copy((bike?new THREE.Vector3(0,1.05,0):new THREE.Vector3(0,2.3,0)).applyMatrix4(item.matrix));
+      const offset=followOffset(this.yaw,THREE.MathUtils.clamp(this.pitch,-.6,-.12),bike?5.2:15.5);
+      const desired=this.cameraTarget.clone().add(new THREE.Vector3(offset.x,offset.y+(bike?.2:1.5),offset.z));
+      const safe=resolveFollowCamera(this.cameraTarget,desired,this.cameraObstacles());
+      if(snap)this.camera.position.set(safe.x,safe.y,safe.z);else this.camera.position.lerp(new THREE.Vector3(safe.x,safe.y,safe.z),1-Math.exp(-dt*10));
+      const corrected=resolveFollowCamera(this.cameraTarget,this.camera.position,this.cameraObstacles());this.camera.position.set(corrected.x,corrected.y,corrected.z);this.camera.lookAt(this.cameraTarget);
+    }
+  }
+  visitPolice(){this.teleport(POLICE_STATION.spawn.x,POLICE_STATION.spawn.z,POLICE_STATION.cameraYaw,0);}
+  visitMarina(){this.teleport(MARINA.spawn.x,MARINA.spawn.z,MARINA.yaw,0);}
+  visitBicycle(){const bike=this.bicycles.bikes.find(b=>b.id==='bicycle-8')??this.bicycles.bikes[0];if(bike)this.teleport(bike.state.x+1.1,bike.state.z+.1,Math.PI/2,0);}
+  feedSeagulls(){
+    if(this.mounted||this.mode==='aerial'||this.seating.frame.phase!=='none'||this.jump.frame.phase!=='grounded'||this.attack.frame.active||this.elapsed-this.feedStart<.8||!this.assetsReady)return;
+    if(this.seagulls.cooldownRemaining>0)return;
+    if(!this.seagulls.available(this.walkPosition)){this.notice('前往滨水步道的海鸥群旁，再按 G 投喂。');return;}
+    if(this.seagulls.cooldownRemaining>0)return;
+    this.feedStart=this.elapsed;this.feedReleased=false;this.characterYaw=this.yaw+Math.PI;this.velocity={x:0,z:0};this.keys.clear();this.tappedKeys.clear();this.moveSpeed=0;this.active=true;if(!this.locked)this.fallback=true;this.renderer.domElement.focus();
   }
   private enableFallback() { if (this.dead || this.mode === 'aerial') return; this.fallback = true; this.active = true; this.notice('已启用拖动观察：按住画面拖动，WASD 自由移动。'); this.emit(); }
   enter() {
@@ -246,7 +292,7 @@ export class CityEngine {
     if(!isStreet||!wasStreet)this.pause();
     if(isStreet)this.streetMode=mode;
     this.mode=mode;this.orbit.enabled=mode==='aerial';
-    if(this.traffic.controlled&&isStreet)this.pitch=mode==='first'?0:-.22;
+    if(this.mounted&&isStreet)this.pitch=mode==='first'?0:-.22;
     if(mode==='aerial') {this.camera.position.set(195,220,330);this.orbit.target.set(0,30,-10);this.orbit.update();}
     else {if(mode==='third')this.pitch=Math.min(this.pitch,-.08);this.applyLook();}
     if(this.active)this.renderer.domElement.focus();
@@ -259,7 +305,7 @@ export class CityEngine {
   reset() { this.teleport(SPAWN.x,SPAWN.z,SPAWN.yaw,this.mode==='first'?SPAWN.pitch:-.12);this.notice('已回到滨海广场入口'); }
   teleport(x:number,z:number,yaw:number,pitch=.14) {
     const arrival=clearArrival(x,z,this.world.obstacles);if(!arrival){this.notice('目的地暂时没有空位，请稍后重试。');return;}x=arrival.x;z=arrival.z;
-    this.traffic.releaseControl();this.attack.reset();this.pause();if(this.mode==='aerial')this.mode=this.streetMode;this.orbit.enabled=false;this.yaw=yaw;
+    this.traffic.releaseControl();this.bicycles.release();this.yachts.release(true);this.feedStart=-10;this.feedReleased=true;this.attack.reset();this.pause();if(this.mode==='aerial')this.mode=this.streetMode;this.orbit.enabled=false;this.yaw=yaw;
     this.pitch=this.mode==='third'?-.12:pitch;this.walkPosition.set(x,EYE_HEIGHT,z);this.jump.reset();this.seating.reset();this.velocity={x:0,z:0};this.moveSpeed=0;
     this.characterYaw=yaw+Math.PI;this.applyLook();this.emit();
   }
@@ -271,7 +317,7 @@ export class CityEngine {
   }
   touchMove(code: string, down: boolean) { if (down) { if (this.mode === 'aerial') this.setMode(this.streetMode); this.active = true; this.fallback = true; this.keys.add(code); } else this.keys.delete(code); this.emit(); }
   interactSeat(){
-    if(this.traffic.controlled||this.attack.frame.active||this.mode==='aerial'||this.jump.frame.phase!=='grounded')return;
+    if(this.mounted||this.elapsed-this.feedStart<.8||this.attack.frame.active||this.mode==='aerial'||this.jump.frame.phase!=='grounded')return;
     if(this.seating.frame.phase==='seated')this.seating.stand(this.world.obstacles);
     else if(this.seating.frame.phase==='none'){
       const seat=nearestSeat(this.walkPosition,this.world.seats,this.world.obstacles);
@@ -281,30 +327,46 @@ export class CityEngine {
     this.active=true;if(!this.locked)this.fallback=true;this.renderer.domElement.focus();this.emit();
   }
   interactVehicle(){
-    if(this.mode==='aerial'||this.seating.frame.phase!=='none'||this.jump.frame.phase!=='grounded'||this.attack.frame.active)return;
-    const car=this.traffic.controlled;
-    if(car){
-      if(Math.hypot(car.speed,car.manual?.lateralSpeed??0)>.5||Math.abs(car.manual?.yawRate??0)>.15){this.notice('先按 X 刹停，再按 F 下车。');return;}
-      const exit=this.traffic.exitPosition();if(!exit){this.notice('车门旁没有空位，请把车移到宽敞的位置。');return;}
-      this.traffic.releaseControl();this.walkPosition.set(exit.x,groundHeight(exit.x,exit.z)+EYE_HEIGHT,exit.z);this.characterYaw=exit.yaw;this.yaw=exit.yaw+Math.PI;this.pitch=-.12;
-      this.notice('已下车 · 车辆会留在这里，可以再次驾驶。');
+    if(this.mode==='aerial'||this.seating.frame.phase!=='none'||this.jump.frame.phase!=='grounded'||this.attack.frame.active||this.elapsed-this.feedStart<.8)return;
+    const car=this.traffic.controlled,bike=this.bicycles.controlled,boat=this.yachts.controlled;
+    if(car||bike||boat){
+      const speed=car?Math.hypot(car.speed,car.manual?.lateralSpeed??0):boat?Math.hypot(boat.state.vx,boat.state.vz):bike!.state.speed;
+      if(speed>.5||(car&&Math.abs(car.manual?.yawRate??0)>.15)){this.notice('先按 X 刹停，再按 F '+(boat?'下船':'下车')+'。');return;}
+      const exit=car?this.traffic.exitPosition():bike?this.bicycles.exitPosition():this.yachts.exitPosition();
+      if(!exit){this.notice(boat?'请驶回东岸码头，靠近栈桥停稳后再下船。':'旁边没有空位，请移到宽敞的位置。');return;}
+      this.traffic.releaseControl();this.bicycles.release();this.yachts.release();this.walkPosition.set(exit.x,groundHeight(exit.x,exit.z)+EYE_HEIGHT,exit.z);this.characterYaw=exit.yaw;this.yaw=exit.yaw+Math.PI;this.pitch=-.12;
+      this.notice(boat?'已上岸 · 游艇已停泊。':'已下车 · 载具会留在这里，可以再次使用。');
     }else{
-      const nearest=this.traffic.nearestVehicle(this.walkPosition);if(!nearest||!this.traffic.takeControl(nearest))return;
-      this.yaw=nearest.yaw+Math.PI;this.pitch=this.mode==='first'?0:-.22;this.lastDriveLook=-10;
-      this.walkPosition.copy(nearest.position);this.notice('W 油门 · Shift 加速 · 空格+A/D 漂移 · X 急刹 · F 下车');
+      const nearCar=this.traffic.nearestVehicle(this.walkPosition),nearBike=this.bicycles.nearest(this.walkPosition),nearBoat=this.yachts.nearest(this.walkPosition);
+      const distance=(p:{x:number;z:number})=>Math.hypot(p.x-this.walkPosition.x,p.z-this.walkPosition.z);
+      if(nearBike&&(!nearCar||distance(nearBike.state)<distance(nearCar.position))){this.bicycles.takeControl(nearBike);this.walkPosition.set(nearBike.state.x,groundHeight(nearBike.state.x,nearBike.state.z),nearBike.state.z);this.yaw=nearBike.state.yaw+Math.PI;this.notice('W 蹬踏 · Shift 加速 · S / 空格 刹车 · F 下车');}
+      else if(nearCar&&this.traffic.takeControl(nearCar)){this.yaw=nearCar.yaw+Math.PI;this.walkPosition.copy(nearCar.position);this.notice('W 油门 · Shift 加速 · 空格+A/D 漂移 · X 急刹 · F 下车');}
+      else if(nearBoat){this.yachts.takeControl(nearBoat);this.yaw=nearBoat.state.yaw+Math.PI;this.walkPosition.set(nearBoat.state.x,0,nearBoat.state.z);this.notice('W 前进 · S 刹车 / 倒船 · A/D 舵向 · X 减速 · 靠码头 F 下船');}
+      else return;
+      this.pitch=this.mode==='first'?0:-.22;this.lastDriveLook=-10;
     }
     this.keys.clear();this.tappedKeys.clear();this.velocity={x:0,z:0};this.moveSpeed=0;this.sprintToggled=false;this.attack.reset();this.active=true;if(!this.locked)this.fallback=true;this.renderer.domElement.focus();this.applyLook();this.emit();
   }
   punch(){
-    if(this.traffic.controlled||this.mode==='aerial'||this.seating.frame.phase!=='none'||this.jump.frame.phase!=='grounded'||!this.assetsReady)return;
+    if(this.mounted||this.elapsed-this.feedStart<.8||this.mode==='aerial'||this.seating.frame.phase!=='none'||this.jump.frame.phase!=='grounded'||!this.assetsReady)return;
     if(!this.attack.request())return;
     this.characterYaw=this.yaw+Math.PI;this.moveSpeed=0;this.velocity={x:0,z:0};this.active=true;if(!this.locked)this.fallback=true;this.renderer.domElement.focus();
   }
-  toggleSprint(){if(this.traffic.controlled)return;this.sprintToggled=!this.sprintToggled;if(this.active)this.renderer.domElement.focus();this.emit();}
-  private zone() { const { x, z } = this.walkPosition; if(x>-25&&x<37&&z>-90&&z<-68)return SCHOOL.name; if (Math.abs(x) > 132 || Math.abs(z) > 130) return '环岛滨水步道'; if (z>70&&z<108&&Math.abs(x)>18&&Math.abs(x)<30) return '海风市集'; if (z > 52 && Math.abs(x) < 35) return '滨海广场'; if (Math.abs(x) < 33 && z < 40 && z > -55) return '潮汐之塔'; if (Math.abs(Math.abs(x) - 48) < 16) return '棕榈大道'; return '蓝湾街区'; }
+  toggleSprint(){if(this.mounted)return;this.sprintToggled=!this.sprintToggled;if(this.active)this.renderer.domElement.focus();this.emit();}
+  private zone() { const { x, z } = this.walkPosition; if(this.yachts.controlled)return '蓝湾海域';if(x>-115&&x<-83&&z>-72&&z<-58)return POLICE_STATION.name;if(x>145&&z>35&&z<96)return '蓝湾游艇码头'; if(x>-25&&x<37&&z>-90&&z<-68)return SCHOOL.name; if (Math.abs(x) > 132 || Math.abs(z) > 130) return '环岛滨水步道'; if (z>70&&z<108&&Math.abs(x)>18&&Math.abs(x)<30) return '海风市集'; if (z > 52 && Math.abs(x) < 35) return '滨海广场'; if (Math.abs(x) < 33 && z < 40 && z > -55) return '潮汐之塔'; if (Math.abs(Math.abs(x) - 48) < 16) return '棕榈大道'; return '蓝湾街区'; }
   private emit(fps = 0) {
-    this.report({ ready: this.assetsReady, locked: this.locked, active: this.active, mode: this.mode, x: this.walkPosition.x, z: this.walkPosition.z, yaw: this.yaw, fps,
-      calls: this.renderer.info.render.calls, triangles: this.renderer.info.render.triangles, zone: this.mode === 'aerial' ? '全城鸟瞰' : this.zone(), fallback: this.fallback, sprinting:this.sprintToggled||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight'), seated:this.seating.frame.phase==='seated', driving:!!this.traffic.controlled,vehicleName:this.traffic.controlled?.model==='concept'?'AERIS GT · 跑车':'ROVER · 城市 SUV',vehicleSpeed:Math.round(Math.hypot(this.traffic.controlled?.speed??0,this.traffic.controlled?.manual?.lateralSpeed??0)*3.6),vehicleGear:(this.traffic.controlled?.speed??0)<-.1?'R':Math.abs(this.traffic.controlled?.speed??0)<.1?'N':'D',vehicleInteraction:this.mode==='aerial'?null:this.traffic.controlled?'exit':this.nearbyVehicle&&this.seating.frame.phase==='none'?'enter':null,attackHit:this.elapsed<this.hitUntil,vehicleBoost:(this.traffic.controlled?.manual?.boostBlend??0)>.15,vehicleDrift:Math.abs(this.traffic.controlled?.manual?.lateralSpeed??0)>.7&&(this.traffic.controlled?.manual?.drift??0)>.15,buses:this.traffic.cars.filter(c=>c.model==='bus').map(c=>({id:c.id,x:c.position.x,z:c.position.z,yaw:c.yaw,stopped:Math.abs(c.speed)<.1})), interaction:this.mode==='aerial'||this.traffic.controlled?null:this.seating.frame.phase==='seated'?'stand':this.seating.frame.phase!=='none'?'busy':this.nearbySeat?'sit':null });
+    const car=this.traffic.controlled,bike=this.bicycles?.controlled,boat=this.yachts?.controlled;
+    const nearBike=!this.mounted?this.bicycles?.nearest(this.walkPosition):undefined,nearBoat=!this.mounted?this.yachts?.nearest(this.walkPosition):undefined;
+    const nearbyBikeFirst=nearBike&&(!this.nearbyVehicle||Math.hypot(nearBike.state.x-this.walkPosition.x,nearBike.state.z-this.walkPosition.z)<Math.hypot(this.nearbyVehicle.position.x-this.walkPosition.x,this.nearbyVehicle.position.z-this.walkPosition.z));
+    const kind=boat?'yacht':bike?'bicycle':car?'car':nearbyBikeFirst?'bicycle':this.nearbyVehicle?'car':nearBoat?'yacht':null;
+    const speed=car?Math.hypot(car.speed,car.manual?.lateralSpeed??0):bike?.state.speed??(boat?Math.hypot(boat.state.vx,boat.state.vz):0);
+    this.report({ready:this.assetsReady,locked:this.locked,active:this.active,mode:this.mode,x:this.walkPosition.x,z:this.walkPosition.z,yaw:this.yaw,fps,
+      calls:this.renderer.info.render.calls,triangles:this.renderer.info.render.triangles,zone:this.mode==='aerial'?'全城鸟瞰':this.zone(),fallback:this.fallback,sprinting:this.sprintToggled||this.keys.has('ShiftLeft')||this.keys.has('ShiftRight'),seated:this.seating.frame.phase==='seated',
+      wantedLevel:this.police?.wanted.state.level??0,wantedSearching:this.police?.wanted.state.searching??false,wantedRemaining:Math.ceil(this.police?.wanted.state.remaining??0),wantedArrest:this.police?.wanted.state.arrestProgress??0,police:this.police?.positions??[],
+      driving:this.mounted,vehicleKind:kind,vehicleName:boat?'AZURE 48 · 游艇':bike?'PELAGIA · 城市自行车':car?.model==='concept'?'AERIS GT · 跑车':'ROVER · 城市 SUV',vehicleSpeed:Math.round(speed*3.6),vehicleGear:(car?.speed??boat?.state.speed??0)<-.1?'R':speed<.1?'N':'D',
+      vehicleInteraction:this.mode==='aerial'?null:this.mounted?'exit':kind&&this.seating.frame.phase==='none'?'enter':null,attackHit:this.elapsed<this.hitUntil,vehicleBoost:car?(car.manual?.boostBlend??0)>.15:!!(bike||boat)&&speed>1&&(this.keys.has('ShiftLeft')||this.keys.has('ShiftRight')),vehicleDrift:Math.abs(car?.manual?.lateralSpeed??0)>.7&&(car?.manual?.drift??0)>.15,
+      feedAvailable:!this.mounted&&this.mode!=='aerial'&&this.seating.frame.phase==='none'&&((this.seagulls?.feeding.zoneAt(this.walkPosition)??-1)>=0),feedCooldown:this.seagulls?.cooldownRemaining??0,gullsFeeding:this.seagulls?.feedingCount??0,
+      buses:this.traffic.cars.filter(c=>c.model==='bus').map(c=>({id:c.id,x:c.position.x,z:c.position.z,yaw:c.yaw,stopped:Math.abs(c.speed)<.1})),interaction:this.mode==='aerial'||this.mounted?null:this.seating.frame.phase==='seated'?'stand':this.seating.frame.phase!=='none'?'busy':this.nearbySeat?'sit':null});
   }
   private tick = (now: number) => {
     if (this.dead) return;
@@ -313,8 +375,8 @@ export class CityEngine {
     if (document.hidden) return;
     this.elapsed += dt; this.frames++;
     this.signals.update(this.elapsed);
-    const car=this.traffic.controlled,held=(key:string)=>this.keys.has(key)||this.tappedKeys.has(key);
-    const previousVehicles=this.traffic.poses();
+    const car=this.traffic.controlled,bike=this.bicycles.controlled,boat=this.yachts.controlled,mounted=!!(car||bike||boat),held=(key:string)=>this.keys.has(key)||this.tappedKeys.has(key);
+    const previousVehicles=[...this.traffic.poses(),...this.bicycles.poses()];
     this.traffic.cockpitView=!!car&&this.mode==='first';
     const attackFrame=this.attack.update(dt);
     if(car){
@@ -322,22 +384,36 @@ export class CityEngine {
       const throttle=enabled?Number(held('KeyW')||held('ArrowUp'))-Number(held('KeyS')||held('ArrowDown')):0;
       const steer=enabled?Number(held('KeyD')||held('ArrowRight'))-Number(held('KeyA')||held('ArrowLeft')):0;
       const collision=this.traffic.drive(dt,{throttle,steer,boost:enabled&&(held('ShiftLeft')||held('ShiftRight')),handbrake:enabled&&held('Space'),brake:!enabled||held('KeyX')?1:0});
+      if(collision&&this.traffic.lastCrash>.5)this.police.offense('car-collision',this.elapsed);
       if(collision&&this.elapsed-this.collisionNotice>3){this.notice(this.traffic.lastCrash>.5?'车辆碰撞 · 已发生减速与推移。':'前方有障碍 · 松开油门，倒车调整方向。');this.collisionNotice=this.elapsed;}
       this.walkPosition.copy(car.position);this.characterYaw=car.yaw;this.tappedKeys.clear();
     }
+    if(bike||boat){
+      const enabled=this.active&&this.mode!=='aerial',throttle=enabled?Number(held('KeyW')||held('ArrowUp'))-Number(held('KeyS')||held('ArrowDown')):0,steer=enabled?Number(held('KeyD')||held('ArrowRight'))-Number(held('KeyA')||held('ArrowLeft')):0;
+      const brake=!enabled||held('KeyX')||held('Space'),boost=enabled&&(held('ShiftLeft')||held('ShiftRight'));
+      const collision=bike?this.bicycles.drive(dt,{throttle,steer,brake:Number(brake),boost}):this.yachts.drive(dt,{throttle,steer,brake,boost});
+      if(collision&&this.elapsed-this.collisionNotice>3){this.notice(boat?'接近岸线或其他船只 · 请减速调整航向。':'前方有障碍 · 请转向或下车绕行。');this.collisionNotice=this.elapsed;}
+      const s=(bike??boat)!.state;this.walkPosition.set(s.x,groundHeight(s.x,s.z),s.z);this.characterYaw=s.yaw;this.tappedKeys.clear();
+    }
+    this.bicycles.update(this.walkPosition,this.mode==='aerial');this.yachts.update(dt,this.elapsed);
+    const previousWanted=this.police.wanted.state.level;
+    const policeState=this.police.update(this.active&&this.mode!=='aerial'?dt:0,this.elapsed,{x:this.walkPosition.x,z:this.walkPosition.z,speed:car?.speed??bike?.state.speed??boat?.state.speed??this.playerSpeed,vehicle:mounted});
+    if(policeState.arrested){this.police.wanted.reset();this.visitPolice();this.notice('已被警方拦下 · 通缉解除，已回到警察局外。');return;}
+    if(previousWanted>0&&policeState.level===0)this.notice('已脱离警方搜索 · 通缉解除。');
     this.traffic.update(dt,this.walkPosition,this.signals,this.elapsed);
-    const impactHits=this.characters.updateVehicleImpacts(previousVehicles,this.traffic.poses(),dt,this.elapsed,this.traffic.environment().obstacles,pose=>this.traffic.stopBeforeImpact(pose));
-    for(const [id,hits] of impactHits)this.traffic.absorbImpact(id,hits);
+    const impactHits=this.characters.updateVehicleImpacts(previousVehicles,[...this.traffic.poses(),...this.bicycles.poses()],dt,this.elapsed,this.traffic.environment().obstacles.filter(o=>!this.traffic.externalObstacles.has(o)),pose=>{if(pose.id.startsWith('bicycle-'))this.bicycles.stopBeforeImpact(pose);else this.traffic.stopBeforeImpact(pose);});
+    for(const [id,hits] of impactHits){this.traffic.absorbImpact(id,hits);if(hits>0&&(id===car?.id||id===bike?.id))this.police.offense('npc-impact',this.elapsed);}
     if(car){this.walkPosition.copy(car.position);this.characterYaw=car.yaw;}
+    if(bike){this.bicycles.update(this.walkPosition,this.mode==='aerial');this.walkPosition.x=bike.state.x;this.walkPosition.z=bike.state.z;this.characterYaw=bike.state.yaw;}
     const wasSeating=this.seating.frame.phase!=='none',seatFrame=this.seating.update(dt,this.world.obstacles);
     const wasJumping=this.jump.frame.phase!=='grounded',jumpFrame=this.jump.update(dt);
     this.playerSpeed=0;
-    if(car){this.playerSpeed=0;}else if(wasSeating){
+    if(mounted){this.playerSpeed=0;}else if(wasSeating){
       this.walkPosition.x=seatFrame.x;this.walkPosition.z=seatFrame.z;this.characterYaw=seatFrame.yaw;
       this.playerSpeed=seatFrame.speed;this.velocity={x:0,z:0};this.moveSpeed=0;
     }else {
       let desired={x:0,z:0};
-      if(this.mode!=='aerial'&&this.active){
+      if(this.mode!=='aerial'&&this.active&&this.elapsed-this.feedStart>=.8){
         const held=(key:string)=>this.keys.has(key)||this.tappedKeys.has(key);
         const forward=Number(held('KeyW')||held('ArrowUp'))-Number(held('KeyS')||held('ArrowDown'));
         const right=Number(held('KeyD')||held('ArrowRight'))-Number(held('KeyA')||held('ArrowLeft'));
@@ -357,13 +433,18 @@ export class CityEngine {
     if(this.mode==='aerial')this.orbit.update();
     const ground=seatFrame.seat&&['sitDown','seated','standUp'].includes(seatFrame.phase)?seatFrame.seat.ground:groundHeight(this.walkPosition.x,this.walkPosition.z);
     this.walkPosition.y=ground+EYE_HEIGHT+jumpFrame.height-.52*seatFrame.progress;
-    this.nearbyVehicle=!car&&seatFrame.phase==='none'&&jumpFrame.phase==='grounded'?this.traffic.nearestVehicle(this.walkPosition):undefined;
-    if(attackFrame.contact&&this.characters.strike(this.walkPosition,this.characterYaw,this.elapsed))this.hitUntil=this.elapsed+.22;
+    this.nearbyVehicle=!mounted&&seatFrame.phase==='none'&&jumpFrame.phase==='grounded'?this.traffic.nearestVehicle(this.walkPosition):undefined;
+    if(attackFrame.contact&&this.characters.strike(this.walkPosition,this.characterYaw,this.elapsed)){this.hitUntil=this.elapsed+.22;this.police.offense('assault',this.elapsed);this.notice('警方接到报警 · 已进入通缉状态。');}
     this.nearbySeat=seatFrame.phase==='none'&&jumpFrame.phase==='grounded'?nearestSeat(this.walkPosition,this.world.seats,this.world.obstacles):undefined;
-    if(car)this.updateDrivingCamera(dt);else if(this.mode==='first')this.applyLook();else if(this.mode==='third')this.updateFollow(dt);
+    if(bike||boat)this.updateOutdoorCamera(dt);else if(car)this.updateDrivingCamera(dt);else if(this.mode==='first')this.applyLook();else if(this.mode==='third')this.updateFollow(dt);
     const feet=new THREE.Vector3(this.walkPosition.x,ground+jumpFrame.height,this.walkPosition.z);
-    if(car)this.characters.updateDriver(car.matrix,car.yaw,car.model,this.mode!=='first',dt);
-    else this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,jumpFrame,seatFrame,attackFrame);
+    const feeding=this.elapsed-this.feedStart<.8?this.elapsed-this.feedStart:undefined;
+    if(!this.feedReleased&&this.elapsed-this.feedStart>=.42){this.feedReleased=true;if(this.seagulls.feed(this.walkPosition,this.yaw,this.elapsed))this.notice('食物已撒下 · 海鸥正在靠近。');}
+    this.seagulls.update(dt,this.elapsed,this.walkPosition);
+    if(bike)this.characters.updateRider(bike.matrix,bike.state.yaw,bike.state.crank,bike.state.steer,bike.state.speed,this.mode!=='first',dt);
+    else if(boat)this.characters.updateCaptain(boat.matrix,boat.state.yaw,this.mode!=='first',dt);
+    else if(car)this.characters.updateDriver(car.matrix,car.yaw,car.model,this.mode!=='first',dt);
+    else this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,jumpFrame,seatFrame,attackFrame,feeding);
     this.characters.update(this.elapsed,this.walkPosition,this.mode==='aerial');
     this.drivingEffects.update(car?.position,car?.yaw,car?.speed,car?.manual?.lateralSpeed,car?.manual?.drift);
     const fov=65+(car?.manual?.boostBlend??0)*5;this.camera.fov=THREE.MathUtils.lerp(this.camera.fov,fov,1-Math.exp(-dt*3));this.camera.updateProjectionMatrix();
@@ -377,7 +458,7 @@ export class CityEngine {
   };
   dispose() {
     this.dead = true; cancelAnimationFrame(this.frame); this.pause(); this.disposers.forEach(fn => fn()); this.resizeObserver.disconnect(); this.orbit.dispose();
-    this.signals.dispose();
+    this.signals.dispose();this.seagulls.dispose();
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
     this.scene.traverse(obj => { if (obj instanceof THREE.InstancedMesh) obj.dispose(); if (obj instanceof THREE.Mesh) { geometries.add(obj.geometry); (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach(m => materials.add(m)); } });
     geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); this.environment.dispose();this.reflection?.dispose();this.backgroundTexture?.dispose();this.characters.dispose();this.traffic.dispose();

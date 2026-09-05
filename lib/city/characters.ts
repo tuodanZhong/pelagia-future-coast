@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { poseRider } from './cycling-driver';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { groundHeight, isWalkable, moveWithCollisions, type Obstacle } from './movement';
@@ -22,7 +23,7 @@ export class Characters {
   private jumpClips:Record<string,THREE.AnimationClip>={};
   constructor(private scene:THREE.Scene,manager:THREE.LoadingManager,private obstacles:Obstacle[],onError:()=>void,private seats:Seat[]=[]) {
     new THREE.FileLoader(manager).setResponseType('json').load('/assets/impact-grounding.json',data=>{if(!this.disposed)this.grounding=(data as unknown as {models:Record<string,GroundingModel>}).models;},undefined,onError);
-    for(const [name,file] of [['jump_idle','jump-idle.json'],['jump_walk','jump-walk.json'],['jump_walk_left','jump-walk-left.json'],['jump_run','jump-run.json'],['sitDown','sit-down.json'],['seated','seated-idle.json'],['standUp','stand-up.json'],['driving_rover','driving-idle.json'],['driving_concept','driving-concept.json'],['punch','punch.json'],['impact_air','impact-air.json'],['impact_ground','impact-ground.json'],['impact_recover','impact-recover.json']])new THREE.FileLoader(manager).setResponseType('json').load('/assets/'+file,data=>{
+    for(const [name,file] of [['cycling','cycling.json'],['cycling_rest','cycling-rest.json'],['feed_seagulls','feed-seagulls.json'],['captain','captain.json'],['jump_idle','jump-idle.json'],['jump_walk','jump-walk.json'],['jump_walk_left','jump-walk-left.json'],['jump_run','jump-run.json'],['sitDown','sit-down.json'],['seated','seated-idle.json'],['standUp','stand-up.json'],['driving_rover','driving-idle.json'],['driving_concept','driving-concept.json'],['punch','punch.json'],['impact_air','impact-air.json'],['impact_ground','impact-ground.json'],['impact_recover','impact-recover.json']])new THREE.FileLoader(manager).setResponseType('json').load('/assets/'+file,data=>{
       if(this.disposed)return;
       this.jumpClips[name]=THREE.AnimationClip.parse(data as unknown as THREE.AnimationClipJSON);
       if(this.player)this.player.actions[name]=this.player.mixer.clipAction(this.jumpClips[name]);
@@ -73,7 +74,7 @@ export class Characters {
     if(actor.action===name)return;
     const next=actor.actions[name]??actor.actions.idle;if(!next)return;
     const old=actor.actions[actor.action],fade=name.startsWith('jump')?.06:.18;
-    if(name.startsWith('impact_')||actor.action.startsWith('impact_')){
+    if(name.startsWith('impact_')||actor.action.startsWith('impact_')||name.startsWith('cycling')||actor.action.startsWith('cycling')||name==='captain'||actor.action==='captain'){
       actor.mixer.stopAllAction();next.reset().setEffectiveWeight(1).play();
     }else if(name.startsWith('driving')||actor.action.startsWith('driving')||['sitDown','seated','standUp'].includes(name)||['sitDown','seated','standUp'].includes(actor.action)){
       old?.stop();next.reset().setEffectiveWeight(1).play();
@@ -89,13 +90,14 @@ export class Characters {
     const left=this.player.root.getObjectByName('Bip01_L_Foot'),right=this.player.root.getObjectByName('Bip01_R_Foot');
     if(left&&right){const l=left.getWorldPosition(new THREE.Vector3()),r=right.getWorldPosition(new THREE.Vector3());this.leftJump=l.y<r.y;}
   }
-  updatePlayer(position:THREE.Vector3,yaw:number,speed:number,visible:boolean,dt:number,jump:JumpFrame,seat:SeatFrame,attack:AttackFrame={active:false,time:0,contact:false}) {
+  updatePlayer(position:THREE.Vector3,yaw:number,speed:number,visible:boolean,dt:number,jump:JumpFrame,seat:SeatFrame,attack:AttackFrame={active:false,time:0,contact:false},feedTime?:number) {
     const actor=this.player;if(!actor)return;
     actor.root.position.copy(position);actor.root.visible=visible;
     const diff=THREE.MathUtils.euclideanModulo(yaw-actor.yaw+Math.PI,Math.PI*2)-Math.PI;
-    actor.yaw+=diff*(1-Math.exp(-dt*12));actor.root.rotation.y=actor.yaw;
+    actor.yaw+=diff*(1-Math.exp(-dt*12));actor.root.rotation.set(0,actor.yaw,0);actor.root.scale.setScalar(1);
     const jumpName='jump_'+jump.kind+(jump.kind==='walk'&&this.leftJump?'_left':''),seatPose=['sitDown','seated','standUp'].includes(seat.phase);
-    this.setAction(actor,attack.active?'punch':seatPose?seat.phase:jump.phase!=='grounded'?jumpName:speed>2.3?'run':speed>.05?'walk':'idle');
+    this.setAction(actor,feedTime!==undefined?'feed_seagulls':attack.active?'punch':seatPose?seat.phase:jump.phase!=='grounded'?jumpName:speed>2.3?'run':speed>.05?'walk':'idle');
+    if(feedTime!==undefined&&actor.actions.feed_seagulls){actor.actions.feed_seagulls.paused=true;actor.actions.feed_seagulls.time=Math.min(feedTime,.7999);}
     if(attack.active&&actor.actions.punch){actor.actions.punch.paused=true;actor.actions.punch.time=Math.min(attack.time,actor.actions.punch.getClip().duration-.0001);}
     if(seatPose&&seat.phase!=='seated'&&actor.actions[seat.phase]){
       const action=actor.actions[seat.phase];action.paused=true;action.time=Math.min(seat.time,action.getClip().duration-.0001);
@@ -114,6 +116,13 @@ export class Characters {
     const anchor=model==='concept'?new THREE.Vector3(.0007,.10,.40):new THREE.Vector3(.42244,.533,.24);
     actor.root.position.copy(anchor.applyMatrix4(matrix));actor.root.rotation.set(0,yaw,0);actor.yaw=yaw;actor.root.visible=visible;
     this.setAction(actor,'driving_'+model);actor.mixer.update(dt);
+  }
+  updateRider(matrix:THREE.Matrix4,yaw:number,crank:number,steer:number,speed:number,visible:boolean,dt:number){
+    if(this.player)poseRider(this.player,matrix,yaw,crank,steer,speed,visible,dt);
+  }
+  updateCaptain(matrix:THREE.Matrix4,yaw:number,visible:boolean,dt:number){
+    const actor=this.player;if(!actor)return;
+    matrix.decompose(actor.root.position,actor.root.quaternion,actor.root.scale);actor.root.position.copy(new THREE.Vector3(0,1.4,-2.1).applyMatrix4(matrix));actor.yaw=yaw;actor.root.visible=visible;this.setAction(actor,'captain');actor.mixer.update(dt);
   }
   strike(origin:THREE.Vector3,yaw:number,time:number){
     const targets=this.citizens.filter(a=>!a.impact||['none','pushed'].includes(a.impact.phase)).map(actor=>({x:actor.root.position.x,z:actor.root.position.z,actor,seatObstacle:actor.seatReleased?undefined:this.seats.find(s=>s.id===actor.spec.seatId)?.obstacle}));

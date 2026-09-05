@@ -73,7 +73,7 @@ export function enrichCity(k: DetailKit) {
 
   }
   // Architectural pavilions create a denser street wall beneath the towers.
-  for(const [x,z,w,d] of [[0,-67,28,13],[-97,21,34,10],[98,21,33,10],[-99,-67,34,9],[117,-118,18,9]] as number[][]) {
+  for(const [x,z,w,d] of [[0,-67,28,13],[-97,21,34,10],[98,21,33,10],[117,-118,18,9]] as number[][]) {
     block(dark,x,2.3,z,w,4.5,d);block(glass,x,2.25,z+d/2+.03,w-.5,3.6,.09);
     block(white,x,.32,z,w+1,.5,d+1);block(white,x,4.5,z,w+2,.42,d+2);
     block(grass,x,4.75,z,w,.12,d);
@@ -109,21 +109,21 @@ export function enrichCity(k: DetailKit) {
     for(let t=-146;t<147;t+=3){block(dark,t,-.8,side*149.62,.025,1.2,.02);block(dark,side*149.62,-.8,t,.02,1.2,.025);}
   }
   for(let x=-118;x<=118;x+=24){bench(x,143);}
-  // A side marina is visible from the public promenade; visitors remain on the island.
+  // Public marina, reached from the eastern promenade by a gently sloped gangway.
   block(wood,162,-.4,65,22,.6,56);block(white,151,-.2,65,3,.3,60);
+  block(wood,148,-.12,72,9,.20,4);
+  for(let x=144;x<152;x+=.45)block(steel,x,-.005,72,.03,.01,3.95);
+  for(const z of [70,74]){
+    pipe([new THREE.Vector3(144,1,z),new THREE.Vector3(152,1,z)],.045,steel,12);
+    for(const x of [144.2,147,150,152]){block(steel,x,.45,z,.07,1.1,.07);obstacles.push({x,z,rx:.12,rz:.12,height:1.1});}
+  }
   for(let z=40;z<=92;z+=6){add(cyl,dark,169,-1,z,.2,2,.2);block(white,161,-.02,z,19,.07,.055);}
-  for(const z of [48,72,90]) {
-    const hull=new THREE.Shape();hull.moveTo(-2,-6);hull.quadraticCurveTo(-3,0,0,7);hull.quadraticCurveTo(3,0,2,-6);hull.closePath();
-    const g=new THREE.ExtrudeGeometry(hull,{depth:1.1,bevelEnabled:true,bevelSegments:2,steps:1,bevelSize:.22,bevelThickness:.2});g.rotateX(Math.PI/2);add(g,white,178,-.6,z,1,1,1);g.dispose();
-    block(wood,178,-.35,z,3.5,.2,7);block(glass,178,.5,z-1,2.7,1.5,3.2);block(white,178,1.35,z-1,3,.16,3.5);
-    pipe([new THREE.Vector3(170,-.1,z+3),new THREE.Vector3(174,-.5,z+2),new THREE.Vector3(177,-.2,z+3)],.035,cream,8);
+  for(const z of [48,72,90]){
+    block(wood,174.25,-.35,z,3.5,.5,1.7);
+    for(let x=173;x<176;x+=.3)block(steel,x,-.085,z,.015,.02,1.65);
+    label('AZURE  /  MARINA',165,1.05,z-6.5,3.6,Math.PI/2);
   }
-  // Bicycles and racks.
-  for(let i=0;i<6;i++) {
-    const x=-124+i*1.2,z=121;
-    const a=torus.clone();a.rotateY(Math.PI/2);add(a,rubber,x,.45,z-.7,.42,.42,.42);add(a,rubber,x,.45,z+.7,.42,.42,.42);a.dispose();
-    pipe([new THREE.Vector3(x,.45,z-.7),new THREE.Vector3(x,1,z-.3),new THREE.Vector3(x,.45,z+.7),new THREE.Vector3(x,.5,z-.05),new THREE.Vector3(x,.45,z-.7)],.035,steel,8);
-    block(dark,x,1.05,z-.3,.3,.09,.22);block(steel,x,1.2,z+.5,.55,.04,.05);
-  }
+  label('BLUE BAY  /  MARINA',143.2,2.2,69,4.2,-Math.PI/2);
+  // Every bicycle is supplied by the rideable fleet, including those beside the school.
   cone.dispose();sphere.dispose();cyl.dispose();torus.dispose();
 }

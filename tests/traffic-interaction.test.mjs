@@ -23,14 +23,14 @@ test('existing route footprints and both parked cars have clear driving and exit
   }
 });
 
-test('all 14 actual initial vehicles can drive and exit safely beside each other',()=>{
+test('all 16 actual initial driveable vehicles can drive and exit safely beside each other',()=>{
   const scene=new THREE.Scene(),world=buildWorld(scene),originalLoad=GLTFLoader.prototype.load;
   // Geometry loading is irrelevant to physics. Prevent this headless test making asset requests.
   GLTFLoader.prototype.load=function(){return this;};
   let traffic;
   try{traffic=new Traffic(scene,new THREE.LoadingManager(),world.obstacles,()=>{});}
   finally{GLTFLoader.prototype.load=originalLoad;}
-  assert.equal(traffic.cars.length,16);assert.equal(traffic.cars.filter(c=>c.drivable!==false).length,14);assert.equal(traffic.cars.filter(c=>c.parked).length,2);
+  assert.equal(traffic.cars.length,18);assert.equal(traffic.cars.filter(c=>c.drivable!==false).length,16);assert.equal(traffic.cars.filter(c=>c.parked).length,2);
   const carObstacles=new Set(traffic.cars.map(c=>c.obstacle));
   const vehicles=traffic.cars.map((car,i)=>({id:car.id??String(i),x:car.matrix.elements[12],z:car.matrix.elements[14],yaw:Math.atan2(car.matrix.elements[8],car.matrix.elements[10]),length:car.length??4.9,width:car.width??2.2}));
   for(const car of vehicles.filter(v=>traffic.cars.find(c=>c.id===v.id).drivable!==false)){

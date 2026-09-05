@@ -92,3 +92,8 @@ Market stalls, shopfronts, fixtures, menu graphics, furnishings, and signal pole
 
 ## School and public transit
 The Blue Bay School building, courtyard, entrance signs and bus-stop additions are original procedural geometry and fictional branding. The Pelagia L10 city bus is also original procedural geometry: rounded body panels, wheel-arch openings, glazing, 24 seats, handrails, two door assemblies, wheels, lamps and shared sign atlas. No external model or texture assets were added for the school or bus. Both use the existing city environment for lighting.
+
+## Waterfront activities and policing
+The articulated seagulls, bicycles, motor yachts, walkable marina, police station and police vehicle markings/light bars are original procedural geometry and fictional branding authored for this project. They use the existing city lighting; no additional external bitmap or model assets were added.
+
+`cycling.json`, `cycling-rest.json`, `feed-seagulls.json` and `captain.json` are authored skeletal poses based on the licensed Rocketbox player's neutral proportions. Each retains the 82 quaternion tracks and one root position track; limb lengths are preserved. Cycling is synchronized to the actual crank with rotation-only arm IK for the steering grips, feeding includes an underhand release at 0.42 seconds, and the captain grips the yacht helm. They retain the bundled Microsoft Rocketbox MIT attribution.

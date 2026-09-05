@@ -187,12 +187,6 @@ export function buildSchool(ctx:SchoolContext) {
     tube([[x-.35,.05,z],[x-.35,.68,z],[x,.82,z],[x+.35,.68,z],[x+.35,.05,z]],.025,steel,8);
   }
   collider(19.8,-83.6,1.08,3.32,1.12);
-  for(let i=0;i<2;i++){
-    const x=20.03,z=-83.0-i*1.1,g=new THREE.TorusGeometry(.32,.024,5,18);g.rotateY(Math.PI/2);
-    shape(g,dark,x,.34,z-.55);shape(g,dark,x,.34,z+.55);g.dispose();
-    tube([[x,.34,z-.55],[x,.79,z-.17],[x,.36,z+.55],[x,.36,z-.03],[x,.34,z-.55]],.022,teal,8);
-    tube([[x,.36,z-.03],[x,.79,z-.17]],.019,steel,3);b(dark,x,.82,z-.20,.17,.06,.23);b(steel,x,1.02,z+.39,.36,.035,.035);
-  }
   // Enhance the existing shelter with a road-facing stop flag; do not duplicate its roof/bench.
   // It sits clear of the existing palm at (34,-72) and lamp at (35,-72).
   b(steel,35.05,1.77,-75.0,.070,3.54,.070);collider(35.05,-75.0,.12,.12,3.7);
