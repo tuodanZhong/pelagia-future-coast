@@ -4,7 +4,6 @@ import type { Obstacle } from './movement';
 import { createVegetation } from './vegetation.ts';
 import { enrichCity } from './details.ts';
 import { buildArchitecture } from './architecture.ts';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 export const TOWERS = [
   { x: 0, z: -16, h: 106, r: 12, rot: 0.2, name: '潮汐之塔' },
@@ -82,7 +81,7 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
   block(asphalt, 0, 0.015, 0, 280, 0.05, 280);
   const xs = [-96, 0, 96], zs = [-96, 0, 96];
   for (const x of xs) for (const z of zs) {
-    block(pavement, x, 0.07, z, x === 0 ? 73 : 70, 0.11, z === 0 ? 73 : 70);
+    block(pavement, x, 0.07, z === 0 ? 0 : Math.sign(z)*90, x === 0 ? 73 : 70, 0.11, z === 0 ? 73 : 60);
 
   }
   for (const x of [-48, 48]) {
@@ -191,28 +190,6 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
   }
   for (const side of [-1, 1]) { block(steel, 0, 1.12, side * 147, 294, 0.09, 0.09); block(steel, side * 147, 1.12, 0, 0.09, 0.09, 294); }
   enrichCity({root,obstacles,add,block,disk,pipe,palm,tree,shrub,white,steel,dark,glass,grass,light});
-  // Efficient repeating street traffic. Vehicles travel on lanes, pedestrians keep sidewalks.
-  const cars: { mesh: THREE.Group; lane: number; offset: number; axis: boolean; direction: number }[] = [];
-  const carPaint = [white, material('#8fbbc4', 0.3, 0.55), dark];
-  for (let i = 0; i < 18; i++) {
-    const mesh = new THREE.Group();
-    const body = new THREE.Mesh(new RoundedBoxGeometry(1.88,.64,4.45,3,.24), carPaint[i % 3]); body.position.y = 0.6; mesh.add(body);
-    const top = new THREE.Mesh(new RoundedBoxGeometry(1.63,.75,2.55,3,.33), glass); top.position.set(0, 1.18, -0.2); mesh.add(top);
-    for (const x of [-0.92, 0.92]) for (const z of [-1.25, 1.25]) { const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.18, 10), dark); wheel.rotation.z = Math.PI / 2; wheel.position.set(x, 0.37, z); mesh.add(wheel); }
-    const axis = i < 10, direction = i % 2 ? 1 : -1, lane = axis ? (i < 5 ? -48 : 48) + direction * 4.2 : (i < 14 ? 132 : -48) + direction * 4.2;
-    const chassis=new THREE.Mesh(new RoundedBoxGeometry(1.86,.16,4.16,2,.09),dark);chassis.position.y=.27;mesh.add(chassis);
-    const lampGeo=new THREE.BoxGeometry(1.38,.07,.06);
-    for(const end of [-1,1]) {const lamp=new THREE.Mesh(lampGeo, end===1?light:new THREE.MeshStandardMaterial({color:'#a63627',emissive:'#7c201b',emissiveIntensity:.5}));lamp.position.set(0,.72,end*2.21);mesh.add(lamp);}
-    const partBatches=new Map<THREE.Material,THREE.BufferGeometry[]>();
-    for(const child of [...mesh.children]) {
-      if(!(child instanceof THREE.Mesh))continue;child.updateMatrix();
-      const g=child.geometry.clone().applyMatrix4(child.matrix);if(!g.index)g.setIndex(Array.from({length:g.attributes.position.count},(_,i)=>i));
-      const mat=child.material as THREE.Material;const list=partBatches.get(mat)??[];list.push(g);partBatches.set(mat,list);
-      child.geometry.dispose();mesh.remove(child);
-    }
-    for(const [mat,gs]of partBatches){const merged=mergeGeometries(gs)!;const part=new THREE.Mesh(merged,mat);part.castShadow=true;part.receiveShadow=true;mesh.add(part);gs.forEach(g=>g.dispose());}
-    root.add(mesh); cars.push({ mesh, lane, offset: i * 31.7, axis, direction });
-  }
   // Batch fixed architectural details into one draw call per material.
   for (const [m, geometries] of batches) {
     const g = mergeGeometries(geometries, false);
@@ -246,6 +223,5 @@ export function buildWorld(scene: THREE.Scene, loadingManager?: THREE.LoadingMan
   box.dispose(); cylinder.dispose(); sphere.dispose();
   return { obstacles, root, glass, update(time: number) {
     waterUniforms.uTime.value = time; sculpture.rotation.y = time * 0.065;
-    cars.forEach(({ mesh, lane, offset, axis, direction }) => { const t = ((time * 5 * direction + offset + 10000) % 270) - 135; mesh.position.set(axis ? lane : t, 0.06, axis ? t : lane); mesh.rotation.y = axis ? (direction > 0 ? 0 : Math.PI) : (direction > 0 ? Math.PI / 2 : -Math.PI / 2); });
   } };
 }

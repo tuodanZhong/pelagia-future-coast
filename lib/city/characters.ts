@@ -1,86 +1,98 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
-import { isWalkable, type Obstacle } from './movement';
+import { groundHeight, isWalkable, type Obstacle } from './movement';
+import { CITIZENS, PERSON_MODELS, type CitizenSpec, type PersonModel } from './population';
+import type { JumpFrame } from './jump';
 
 type Actor={root:THREE.Group;mixer:THREE.AnimationMixer;actions:Record<string,THREE.AnimationAction>;action:string;yaw:number};
-type Citizen=Actor&{x:number;z:number;phase:number;distance:number;direction:number;moving:boolean};
+type Citizen=Actor&{spec:CitizenSpec;model:PersonModel;distance:number;direction:number;turnPause:number};
 export class Characters {
   player?:Actor;
   citizens:Citizen[]=[];
   private disposed=false;
   private lastNpcUpdate=0;
-
+  private jumpClip?:THREE.AnimationClip;
   constructor(private scene:THREE.Scene,manager:THREE.LoadingManager,private obstacles:Obstacle[],onError:()=>void) {
-    ['/assets/pelagia-citizen.glb','/assets/pelagia-citizen-female.glb'].forEach((url,gender)=>new GLTFLoader(manager).load(url,gltf=>{
+    new THREE.FileLoader(manager).setResponseType('json').load('/assets/jump-clip.json',data=>{
+      if(this.disposed)return;
+      this.jumpClip=THREE.AnimationClip.parse(data as unknown as THREE.AnimationClipJSON);
+      if(this.player)this.player.actions.jump=this.player.mixer.clipAction(this.jumpClip);
+    },undefined,onError);
+    PERSON_MODELS.forEach(modelSpec=>new GLTFLoader(manager).load('/assets/'+modelSpec.file,gltf=>{
       if(this.disposed){gltf.scene.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});return;}
-      // A single real human asset is instanced with independent skeletons and animation state.
       gltf.scene.updateMatrixWorld(true);
-      const bounds=new THREE.Box3().setFromObject(gltf.scene),height=bounds.max.y-bounds.min.y;
-      const build=(index:number):Actor=>{
-        const model=clone(gltf.scene) as THREE.Group;model.scale.multiplyScalar((gender===0?1.78:1.68)/height);
-        model.position.y=-bounds.min.y*(gender===0?1.78:1.68)/height;
-        const root=new THREE.Group();root.name=index<0?'Player':'Citizen '+index;root.add(model);this.scene.add(root);
+      const bounds=new THREE.Box3().setFromObject(gltf.scene),scale=modelSpec.height/(bounds.max.y-bounds.min.y);
+      const build=(index:number,wardrobe?:string):Actor=>{
+        const model=clone(gltf.scene) as THREE.Group;model.scale.multiplyScalar(scale);model.position.y=-bounds.min.y*scale;
+        const root=new THREE.Group();root.name=index<0?'Player':`${modelSpec.id} ${index}`;root.add(model);this.scene.add(root);
         model.traverse(o=>{
           if(!(o instanceof THREE.Mesh))return;
           o.castShadow=true;o.receiveShadow=true;o.frustumCulled=false;
           const mats=Array.isArray(o.material)?o.material:[o.material];
           const cloned=mats.map(original=>{
-            const m=original.clone() as THREE.MeshStandardMaterial;
-            m.metalness=0;m.roughness=.88;
-            // Preserve skin albedo and all photographic clothing detail.
-            if(/body/i.test(m.name)&&index>=0)m.color.multiply(new THREE.Color(['#b3c2c7','#bba991','#99aaa4','#d3d0c5'][index%4]));
+            const m=original.clone() as THREE.MeshStandardMaterial;m.metalness=0;m.roughness=.88;
+            if(wardrobe&&/body/i.test(m.name))m.color.multiply(new THREE.Color(wardrobe));
             if(m.transparent){m.alphaTest=.06;m.depthWrite=false;m.side=THREE.DoubleSide;}
             return m;
-          });
-          o.material=Array.isArray(o.material)?cloned:cloned[0];
+          });o.material=Array.isArray(o.material)?cloned:cloned[0];
         });
         const mixer=new THREE.AnimationMixer(model),actions:Record<string,THREE.AnimationAction>={};
-        for(const clip of gltf.animations){const a=mixer.clipAction(clip);actions[clip.name.toLowerCase()]=a;}
+        for(const clip of gltf.animations)actions[clip.name.toLowerCase()]=mixer.clipAction(clip);
+        if(index<0&&this.jumpClip)actions.jump=mixer.clipAction(this.jumpClip);
         const actor={root,mixer,actions,action:'',yaw:0};this.setAction(actor,'idle');mixer.update(.3+(Math.max(0,index)*.19)%2);return actor;
       };
-      if(gender===0)this.player=build(-1);
-      const positions=[[20,112],[-21,113],[32,81],[-32,97],[32,26],[-32,43],[32,-18],[-32,-20],[32,-91],[-32,-100],[130,87],[-130,47],[80,143],[-80,143]];
-      positions.forEach(([x,z],i)=>{
-        if((i+1)%2!==gender||!isWalkable(x,z,obstacles,.28))return;
-        const actor=build(i);actor.root.position.set(x,.14,z);actor.root.scale.setScalar(.96+(i%3)*.035);
-        const citizen={...actor,x,z,phase:i*.83,distance:0,direction:i%2?1:-1,moving:i>1&&i<12};
-        citizen.root.rotation.y=i%2?0:Math.PI;citizen.yaw=citizen.root.rotation.y;
-        this.citizens.push(citizen);
+      if(modelSpec.id==='player')this.player=build(-1);
+      CITIZENS.forEach((spec,index)=>{
+        if(spec.model!==modelSpec.id)return;
+        const actor=build(index,spec.wardrobe);
+        actor.root.position.set(spec.x,groundHeight(spec.x,spec.z),spec.z);
+        actor.yaw=spec.yaw??(index%2?0:Math.PI);actor.root.rotation.y=actor.yaw;
+        this.citizens.push({...actor,spec,model:modelSpec,distance:spec.offset??0,direction:1,turnPause:0});
       });
     },undefined,onError));
   }
   private setAction(actor:Actor,name:string) {
     if(actor.action===name)return;
     const next=actor.actions[name]??actor.actions.idle;if(!next)return;
-    const old=actor.actions[actor.action];next.reset().fadeIn(.22).play();old?.fadeOut(.22);actor.action=name;
+    const old=actor.actions[actor.action],fade=name==='jump'?.075:.18;
+    next.reset().fadeIn(fade).play();old?.fadeOut(fade);actor.action=name;
   }
-  updatePlayer(position:THREE.Vector3,yaw:number,speed:number,visible:boolean,dt:number,airborne:boolean) {
+  updatePlayer(position:THREE.Vector3,yaw:number,speed:number,visible:boolean,dt:number,jump:JumpFrame) {
     const actor=this.player;if(!actor)return;
-    actor.root.position.set(position.x,position.y,position.z);actor.root.visible=visible;
+    actor.root.position.copy(position);actor.root.visible=visible;
     const diff=THREE.MathUtils.euclideanModulo(yaw-actor.yaw+Math.PI,Math.PI*2)-Math.PI;
     actor.yaw+=diff*(1-Math.exp(-dt*12));actor.root.rotation.y=actor.yaw;
-    this.setAction(actor,airborne?'idle':speed>3?'run':speed>.05?'walk':'idle');
+    this.setAction(actor,jump.phase!=='grounded'?'jump':speed>3?'run':speed>.05?'walk':'idle');
+    if(actor.actions.jump&&jump.phase!=='grounded') {
+      // Physics owns world height; a phase-synchronised bone clip owns crouch, arms and knees.
+      actor.actions.jump.paused=true;actor.actions.jump.time=Math.min(jump.time,actor.actions.jump.getClip().duration-.0001);
+    }
     if(actor.actions.walk)actor.actions.walk.timeScale=Math.max(.7,Math.min(1.5,speed/1.4));
-    if(actor.actions.run)actor.actions.run.timeScale=Math.max(.8,Math.min(1.5,speed/4.5));
+    if(actor.actions.run)actor.actions.run.timeScale=Math.max(.8,Math.min(1.5,speed/3.1));
     actor.mixer.update(dt);
   }
   update(time:number,player:THREE.Vector3,aerial:boolean) {
-    // Far-away animation skeletons sleep; nearby pedestrians update at 30 Hz.
     if(time-this.lastNpcUpdate<1/30)return;
     const step=Math.min(time-this.lastNpcUpdate,.08);this.lastNpcUpdate=time;
     this.citizens.forEach(actor=>{
-      const near=Math.hypot(actor.root.position.x-player.x,actor.root.position.z-player.z)<65;
-      actor.root.visible=aerial||near;
-      if(!near||aerial)return;
-      if(actor.moving) {
-        const dz=actor.direction*step*1.1;
-        if(Math.abs(actor.distance+dz)>7||!isWalkable(actor.x,actor.z+actor.distance+dz,this.obstacles,.33))actor.direction*=-1;
+      const {spec,model}=actor;
+      const near=Math.hypot(actor.root.position.x-player.x,actor.root.position.z-player.z)<78;
+      actor.root.visible=aerial||near;if(!near||aerial)return;
+      actor.turnPause=Math.max(0,actor.turnPause-step);
+      const moving=spec.pace>0&&actor.turnPause===0;
+      if(moving) {
+        const dz=actor.direction*step*spec.pace;
+        if(Math.abs(actor.distance+dz)>spec.route||!isWalkable(spec.x,spec.z+actor.distance+dz,this.obstacles,.30)) {actor.direction*=-1;actor.turnPause=.45;}
         else actor.distance+=dz;
-        actor.root.position.z=actor.z+actor.distance;
-        actor.root.rotation.y=actor.direction>0?0:Math.PI;
+        actor.root.position.set(spec.x,groundHeight(spec.x,spec.z+actor.distance),spec.z+actor.distance);
+        const yaw=actor.direction>0?0:Math.PI;
+        const diff=THREE.MathUtils.euclideanModulo(yaw-actor.yaw+Math.PI,Math.PI*2)-Math.PI;
+        actor.yaw+=diff*(1-Math.exp(-step*5));actor.root.rotation.y=actor.yaw;
       }
-      this.setAction(actor,actor.moving?'walk':'idle');actor.mixer.update(step);
+      this.setAction(actor,moving?'walk':'idle');
+      if(actor.actions.walk)actor.actions.walk.timeScale=spec.pace/model.gaitSpeed;
+      actor.mixer.update(step);
     });
   }
   dispose(){this.disposed=true;this.player?.mixer.stopAllAction();this.citizens.forEach(a=>a.mixer.stopAllAction());}

@@ -8,6 +8,8 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildWorld } from './world';
 import { Characters } from './characters';
+import { JumpController } from './jump';
+import { Traffic } from './traffic';
 import { followOffset, resolveFollowCamera } from './camera';
 import { EYE_HEIGHT, SPAWN, moveWithCollisions, movementVector, groundHeight } from './movement';
 
@@ -27,6 +29,7 @@ export class CityEngine {
   pitch = -0.12;
   private streetMode: ViewMode = 'third';
   private characters: Characters;
+  private traffic: Traffic;
   private characterYaw = SPAWN.yaw + Math.PI;
   private playerSpeed = 0;
   private cameraTarget = new THREE.Vector3();
@@ -49,7 +52,7 @@ export class CityEngine {
   private elapsed = 0;
   private lastReport = 0;
   private frames = 0;
-  private verticalSpeed = 0;
+  private jump = new JumpController();
   private walkPosition = new THREE.Vector3(SPAWN.x, EYE_HEIGHT, SPAWN.z);
   private resizeObserver: ResizeObserver;
   private disposers: (() => void)[] = [];
@@ -90,6 +93,7 @@ export class CityEngine {
     assetManager.onLoad=()=>{if(!this.dead){this.assetsReady=true;this.emit();}};
     this.world = buildWorld(this.scene,assetManager);
     this.characters = new Characters(this.scene,assetManager,this.world.obstacles,()=>this.notice('人物资源加载失败，请刷新重试。'));
+    this.traffic = new Traffic(this.scene,assetManager,this.world.obstacles,()=>this.notice('车辆资源加载失败，请刷新重试。'));
     const target = new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,samples:4});
     this.composer = new EffectComposer(this.renderer,target);
     this.composer.addPass(new RenderPass(this.scene,this.camera));
@@ -108,6 +112,7 @@ export class CityEngine {
       const capture=new THREE.WebGLCubeRenderTarget(256,{type:THREE.HalfFloatType});
       const probe=new THREE.CubeCamera(.3,3000,capture);probe.position.set(0,28,58);probe.update(this.renderer,this.scene);
       this.reflection=pm.fromCubemap(capture.texture);this.world.glass.envMap=this.reflection.texture;this.world.glass.needsUpdate=true;
+      this.traffic.setReflection(this.reflection.texture);
       capture.dispose();pm.dispose();this.renderer.shadowMap.needsUpdate=true;
     },undefined,()=>this.notice('天空贴图未能加载，已切换到程序天空。'));
 
@@ -160,7 +165,7 @@ export class CityEngine {
     if (!this.active || this.mode === 'aerial') return;
     if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','ShiftLeft','ShiftRight'].includes(e.code)) {
       e.preventDefault(); this.keys.add(e.code); if (!e.repeat) this.tappedKeys.add(e.code);
-      if (e.code === 'Space' && this.walkPosition.y <= EYE_HEIGHT + 0.01) this.verticalSpeed = 4.4;
+      if(e.code==='Space'&&!e.repeat)this.jump.request();
     }
   };
   private onMouseMove = (e: MouseEvent) => { if (this.locked && this.mode !== 'aerial') this.look(e.movementX, e.movementY); };
@@ -202,7 +207,7 @@ export class CityEngine {
   reset() { this.teleport(SPAWN.x,SPAWN.z,SPAWN.yaw,this.mode==='first'?SPAWN.pitch:-.12);this.notice('已回到滨海广场入口'); }
   teleport(x:number,z:number,yaw:number,pitch=.14) {
     this.pause();if(this.mode==='aerial')this.mode=this.streetMode;this.orbit.enabled=false;this.yaw=yaw;
-    this.pitch=this.mode==='third'?-.12:pitch;this.walkPosition.set(x,EYE_HEIGHT,z);this.verticalSpeed=0;
+    this.pitch=this.mode==='third'?-.12:pitch;this.walkPosition.set(x,EYE_HEIGHT,z);this.jump.reset();
     this.characterYaw=yaw+Math.PI;this.applyLook();this.emit();
   }
   setQuality(quality: number) {
@@ -223,6 +228,7 @@ export class CityEngine {
     const dt = Math.min(this.prev ? (now - this.prev) / 1000 : 0.016, 0.05); this.prev = now;
     if (document.hidden) return;
     this.elapsed += dt; this.frames++;
+    this.traffic.update(dt,this.walkPosition);
     this.playerSpeed=0;
     if (this.mode !== 'aerial' && this.active) {
       const held = (key: string) => this.keys.has(key) || this.tappedKeys.has(key);
@@ -235,12 +241,12 @@ export class CityEngine {
       this.playerSpeed=Math.hypot(p.x-this.walkPosition.x,p.z-this.walkPosition.z)/dt;
       if(this.playerSpeed>.05)this.characterYaw=Math.atan2(p.x-this.walkPosition.x,p.z-this.walkPosition.z);
       this.walkPosition.x=p.x;this.walkPosition.z=p.z;
-      this.verticalSpeed -= 13 * dt; this.walkPosition.y = Math.max(EYE_HEIGHT, this.walkPosition.y + this.verticalSpeed * dt);
-      if (this.walkPosition.y === EYE_HEIGHT) this.verticalSpeed = 0;
+
     } else if (this.mode === 'aerial') this.orbit.update();
+    const jumpFrame=this.jump.update(dt);this.walkPosition.y=EYE_HEIGHT+jumpFrame.height;
     if(this.mode==='first')this.applyLook();else if(this.mode==='third')this.updateFollow(dt);
     const feet=new THREE.Vector3(this.walkPosition.x,this.walkPosition.y-EYE_HEIGHT+groundHeight(this.walkPosition.x,this.walkPosition.z),this.walkPosition.z);
-    this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,this.walkPosition.y>EYE_HEIGHT+.03);
+    this.characters.updatePlayer(feet,this.characterYaw,this.playerSpeed,this.mode==='third'&&this.camera.position.distanceTo(this.cameraTarget)>1,dt,jumpFrame);
     this.characters.update(this.elapsed,this.walkPosition,this.mode==='aerial');
     this.world.update(this.elapsed);
     if(this.elapsed-this.lastShadow>.12){this.renderer.shadowMap.needsUpdate=true;this.lastShadow=this.elapsed;}
@@ -254,7 +260,7 @@ export class CityEngine {
     this.dead = true; cancelAnimationFrame(this.frame); this.pause(); this.disposers.forEach(fn => fn()); this.resizeObserver.disconnect(); this.orbit.dispose();
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
     this.scene.traverse(obj => { if (obj instanceof THREE.InstancedMesh) obj.dispose(); if (obj instanceof THREE.Mesh) { geometries.add(obj.geometry); (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach(m => materials.add(m)); } });
-    geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); this.environment.dispose();this.reflection?.dispose();this.backgroundTexture?.dispose();this.characters.dispose();
+    geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); this.environment.dispose();this.reflection?.dispose();this.backgroundTexture?.dispose();this.characters.dispose();this.traffic.dispose();
     for(const m of materials){for(const v of Object.values(m))if(v instanceof THREE.Texture)v.dispose();}
     this.composer.passes.forEach(p=>p.dispose());this.composer.dispose();this.sun.shadow.dispose(); this.renderer.dispose(); this.renderer.domElement.remove();
   }

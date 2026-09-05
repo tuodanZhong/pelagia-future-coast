@@ -1,0 +1,212 @@
+[
+  {
+    "id": "senior-male",
+    "file": "npc-senior-male.glb",
+    "character": "Male_Adult_03",
+    "age": "senior",
+    "sex": "male",
+    "bytes": 1338436,
+    "triangles": 7200,
+    "vertices": 4426,
+    "heightMeters": 1.80724718751123,
+    "forward": "+Z",
+    "walkPlaybackRate": 0.7,
+    "walkSpeedMetersPerSecond": 0.9816609681276471,
+    "sourceWalkSpeedMetersPerSecond": 1.4023728116109246,
+    "sourceRunSpeedMetersPerSecond": 3.074735555954302,
+    "animationPositionScale": 1,
+    "clips": [
+      {
+        "name": "Idle",
+        "duration": 2.7333333492279053,
+        "tracks": 83
+      },
+      {
+        "name": "Walk",
+        "duration": 1.0666667222976685,
+        "tracks": 83
+      },
+      {
+        "name": "Run",
+        "duration": 0.7666666507720947,
+        "tracks": 83
+      }
+    ],
+    "sha256": "b7f6d36eb542f243a2ea8e9a24b0643a2f3e5d7ab588ca373258eaf38e3f57da"
+  },
+  {
+    "id": "senior-female",
+    "file": "npc-senior-female.glb",
+    "character": "Business_Female_02",
+    "age": "senior",
+    "sex": "female",
+    "bytes": 1768264,
+    "triangles": 8640,
+    "vertices": 5671,
+    "heightMeters": 1.728752725243004,
+    "forward": "+Z",
+    "walkPlaybackRate": 0.67,
+    "walkSpeedMetersPerSecond": 0.8673560164565949,
+    "sourceWalkSpeedMetersPerSecond": 1.2945612185919326,
+    "sourceRunSpeedMetersPerSecond": 3.1571869649216406,
+    "animationPositionScale": 1,
+    "clips": [
+      {
+        "name": "Idle",
+        "duration": 2.6666667461395264,
+        "tracks": 83
+      },
+      {
+        "name": "Walk",
+        "duration": 1.2333333492279053,
+        "tracks": 83
+      },
+      {
+        "name": "Run",
+        "duration": 0.8333333134651184,
+        "tracks": 83
+      }
+    ],
+    "sha256": "01d641d2d2db607ecefec640c3f1f1415dce89e4d2ec752f210f5bfdcf0fc03a"
+  },
+  {
+    "id": "boy",
+    "file": "npc-boy.glb",
+    "character": "Male_Child_01",
+    "age": "child",
+    "sex": "male",
+    "bytes": 1084488,
+    "triangles": 6660,
+    "vertices": 3936,
+    "heightMeters": 1.4328028020749775,
+    "forward": "+Z",
+    "walkPlaybackRate": 1.02,
+    "walkSpeedMetersPerSecond": 1.1300318982193476,
+    "sourceWalkSpeedMetersPerSecond": 1.1078744100189681,
+    "sourceRunSpeedMetersPerSecond": 2.4290408454968655,
+    "animationPositionScale": 0.7899999207388638,
+    "clips": [
+      {
+        "name": "Idle",
+        "duration": 2.7333333492279053,
+        "tracks": 83
+      },
+      {
+        "name": "Walk",
+        "duration": 1.0666667222976685,
+        "tracks": 83
+      },
+      {
+        "name": "Run",
+        "duration": 0.7666666507720947,
+        "tracks": 83
+      }
+    ],
+    "sha256": "244d2aa6107d9f7d85f68678348b2112456c02ad01c5857438c0a39e2e0bde2e"
+  },
+  {
+    "id": "girl",
+    "file": "npc-girl.glb",
+    "character": "Female_Child_01",
+    "age": "child",
+    "sex": "female",
+    "bytes": 1125480,
+    "triangles": 7102,
+    "vertices": 4224,
+    "heightMeters": 1.4330281615084257,
+    "forward": "+Z",
+    "walkPlaybackRate": 0.96,
+    "walkSpeedMetersPerSecond": 1.019392424557587,
+    "sourceWalkSpeedMetersPerSecond": 1.0618671089141531,
+    "sourceRunSpeedMetersPerSecond": 2.5896905813301365,
+    "animationPositionScale": 0.8202525254611936,
+    "clips": [
+      {
+        "name": "Idle",
+        "duration": 2.6666667461395264,
+        "tracks": 83
+      },
+      {
+        "name": "Walk",
+        "duration": 1.2333333492279053,
+        "tracks": 83
+      },
+      {
+        "name": "Run",
+        "duration": 0.8333333134651184,
+        "tracks": 83
+      }
+    ],
+    "sha256": "73e3ca0ea9b3ee1d1002cc4de2d5603c78c88f349477b2ef0e55eeafdd37f849"
+  },
+  {
+    "id": "casual-male",
+    "file": "npc-casual-male.glb",
+    "character": "Male_Adult_06",
+    "age": "adult",
+    "sex": "male",
+    "bytes": 1508340,
+    "triangles": 7456,
+    "vertices": 4569,
+    "heightMeters": 1.8313217306495442,
+    "forward": "+Z",
+    "walkPlaybackRate": 1,
+    "walkSpeedMetersPerSecond": 1.4023728116109246,
+    "sourceWalkSpeedMetersPerSecond": 1.4023728116109246,
+    "sourceRunSpeedMetersPerSecond": 3.074735555954302,
+    "animationPositionScale": 1,
+    "clips": [
+      {
+        "name": "Idle",
+        "duration": 2.7333333492279053,
+        "tracks": 83
+      },
+      {
+        "name": "Walk",
+        "duration": 1.0666667222976685,
+        "tracks": 83
+      },
+      {
+        "name": "Run",
+        "duration": 0.7666666507720947,
+        "tracks": 83
+      }
+    ],
+    "sha256": "4cb38e171e329a7ea80a8af0bc161032635ad3adce037a43a63dfb87783952a7"
+  },
+  {
+    "id": "casual-female",
+    "file": "npc-casual-female.glb",
+    "character": "Female_Adult_08",
+    "age": "adult",
+    "sex": "female",
+    "bytes": 1468400,
+    "triangles": 8276,
+    "vertices": 5274,
+    "heightMeters": 1.7349161448840231,
+    "forward": "+Z",
+    "walkPlaybackRate": 0.94,
+    "walkSpeedMetersPerSecond": 1.2168875454764165,
+    "sourceWalkSpeedMetersPerSecond": 1.2945612185919326,
+    "sourceRunSpeedMetersPerSecond": 3.1571869649216406,
+    "animationPositionScale": 1,
+    "clips": [
+      {
+        "name": "Idle",
+        "duration": 2.6666667461395264,
+        "tracks": 83
+      },
+      {
+        "name": "Walk",
+        "duration": 1.2333333492279053,
+        "tracks": 83
+      },
+      {
+        "name": "Run",
+        "duration": 0.8333333134651184,
+        "tracks": 83
+      }
+    ],
+    "sha256": "db10ea39672f15f49717c439a60856e4caed021c568c1d918e1a49ca0b32fdcf"
+  }
+]

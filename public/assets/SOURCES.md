@@ -65,3 +65,9 @@ Converted to glTF with metre scale, embedded compressed textures and in-place sk
 kloofendal_38d_partly_cloudy_puresky, Poly Haven, CC0.
 https://polyhaven.com/a/kloofendal_38d_partly_cloudy_puresky
 https://polyhaven.com/license
+
+## Diverse population and authored jump
+Six additional Rocketbox models: see NPC-SOURCES.md and npc-manifest.json. The Jump clip is an authored skeletal animation using the original male rig and idle pose: crouch, push-off, arm swing, knee tuck, touchdown and recovery. It is synchronized to a 4.4 m/s launch and 13 m/s² gravity, with no baked flight arc.
+
+## Detailed traffic
+Two licensed vehicle assets, optimized for instanced traffic with independent wheel movement. Authors, licenses and adaptation notices are listed in VEHICLE-ATTRIBUTION.md and the application's /credits.html page.

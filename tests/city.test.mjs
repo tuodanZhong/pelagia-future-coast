@@ -68,3 +68,55 @@ test('character asset includes textured skinning and three valid in-place animat
   assert.deepEqual(gltf.animations.map(a=>a.name).sort(),['Idle','Run','Walk']);
   for(const animation of gltf.animations)assert.ok(animation.channels.length>20);
 });
+
+test('jump has grounded anticipation, a ballistic flight, and grounded landing recovery',async()=>{
+  const {JumpController,JUMP_TIMING,FLIGHT_DURATION,JUMP_DURATION,sampleJump}=await import('../lib/city/jump.ts');
+  const jump=new JumpController();assert.equal(jump.request(),true);
+  jump.update(.08);assert.equal(jump.frame.phase,'takeoff');assert.equal(jump.frame.height,0);
+  assert.equal(jump.request(),false);
+  const apex=sampleJump(JUMP_TIMING.takeoff+FLIGHT_DURATION/2);
+  assert.equal(apex.phase,'airborne');assert.ok(apex.height>.7&&apex.height<.8);assert.ok(Math.abs(apex.velocity)<1e-8);
+  const landing=sampleJump(JUMP_TIMING.takeoff+FLIGHT_DURATION+.1);
+  assert.equal(landing.phase,'landing');assert.equal(landing.height,0);
+  jump.update(JUMP_DURATION);assert.equal(jump.frame.phase,'grounded');assert.equal(jump.request(),true);
+  jump.reset();assert.equal(jump.frame.phase,'grounded');
+});
+test('jump clip bends both legs and swings both arms on the same clock as physics',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const {JUMP_DURATION}=await import('../lib/city/jump.ts');
+  const json=JSON.parse(await readFile(new URL('../public/assets/jump-clip.json',import.meta.url),'utf8'));
+  const clip=THREE.AnimationClip.parse(json);assert.ok(Math.abs(clip.duration-JUMP_DURATION)<1e-6);
+  for(const side of ['L','R'])for(const limb of ['Calf','UpperArm']){
+    const t=clip.tracks.find(t=>t.name.includes(`${side}_${limb}`)&&t.name.endsWith('.quaternion'));
+    assert.ok(t,`${side} ${limb} animated`);
+    assert.ok(t.times.length>4);assert.ok(new Set(t.values).size>12);
+  }
+});
+test('population contains distinct men, women, seniors and true child models on clear paths',async()=>{
+  const {PERSON_MODELS,CITIZENS}=await import('../lib/city/population.ts');
+  assert.ok(new Set(CITIZENS.map(p=>p.model)).size>=7);
+  for(const kind of ['adult','senior','child'])for(const sex of ['male','female'])
+    assert.ok(PERSON_MODELS.some(m=>m.kind===kind&&m.sex===sex&&CITIZENS.some(p=>p.model===m.id)));
+  for(const p of CITIZENS){assert.ok(isWalkable(p.x,p.z,world.obstacles,.30),`pedestrian ${p.model}: ${p.x},${p.z}`);}
+  for(const m of PERSON_MODELS.filter(m=>m.kind==='child'))assert.ok(m.height<1.5&&m.file.includes('npc-'));
+});
+
+test('traffic loops are continuous and keep both lanes on asphalt',async()=>{
+  const {createTrafficRoute}=await import('../lib/city/traffic.ts');
+  const {groundHeight}=await import('../lib/city/movement.ts');
+  for(const reverse of [false,true]){
+    const route=createTrafficRoute(reverse);assert.ok(route.getPointAt(0).distanceTo(route.getPointAt(1))<1e-6);
+    for(let i=0;i<400;i++){
+      const p=route.getPointAt(i/400),t=route.getTangentAt(i/400);
+      assert.equal(groundHeight(p.x,p.z),.04,`lane ${reverse} at ${p.x},${p.z}`);
+      assert.ok(Number.isFinite(t.x)&&Math.abs(t.length()-1)<1e-6);
+    }
+  }
+});
+test('traffic brakes progressively and never reverses while yielding',async()=>{
+  const {brakingSpeed}=await import('../lib/city/traffic.ts');
+  let speed=4.3,distance=0;
+  for(let i=0;i<60;i++){speed=brakingSpeed(speed,0,1/60);distance+=speed/60;assert.ok(speed>=0);}
+  assert.equal(speed,0);assert.ok(distance<2.3);
+  assert.ok(brakingSpeed(0,4.3,.1)>0&&brakingSpeed(0,4.3,.1)<.3);
+});
